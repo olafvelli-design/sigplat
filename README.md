@@ -8,7 +8,7 @@ Un mismo despliegue sirve a varios entes; cada uno se define con un archivo de c
 ## Requisitos (costo cero)
 
 - Python 3.11 o superior. Sólo biblioteca estándar: sin `pip install`.
-- Navegador moderno e internet. La interfaz carga Leaflet 1.9.4 desde unpkg y las teselas de OpenStreetMap. Sin internet, la interfaz no se inicializa.
+- Navegador moderno e internet. La interfaz carga Leaflet 1.9.4 desde unpkg, las teselas de OpenStreetMap y, para buscar direcciones, Nominatim. Sin internet, la interfaz no se inicializa.
 
 ## Puesta en marcha
 
@@ -27,7 +27,7 @@ Abrir <http://127.0.0.1:8000>. El `seed` recrea `data/sigplat.db` con datos fict
 python -m unittest discover -s tests -v
 ```
 
-54 pruebas: reglas de estado, separación de funciones, evidencias append-only, banderas de consistencia, aislamiento entre entes, permisos por rol, autenticación (contraseña, sesión, bloqueo, revocación), indicadores sin datos inventados, y pruebas HTTP. Usan base y fotos temporales.
+59 pruebas: reglas de estado, separación de funciones, evidencias append-only, banderas de consistencia, aislamiento entre entes, permisos por rol, autenticación (contraseña, sesión, bloqueo, revocación), indicadores sin datos inventados, y pruebas HTTP. Usan base y fotos temporales.
 
 ## Acceso
 
@@ -47,6 +47,21 @@ Cada rol ve sólo lo que le corresponde:
 | Inspector | Bandeja de incidencias, inspeccionar, validar o observar avances, revisar evidencias, mapa y tablero |
 | Autoridad | Todo lo anterior, más crear intervenciones y cerrarlas |
 | Administrador | Mapa, tablero y bandeja de consulta (sin operar intervenciones) |
+
+## Cómo se usa (pensado primero para el celular)
+
+**Vecino**
+- *Reportar* en tres pasos: elegir el tipo de problema (botones con ícono), marcar el lugar (usar la ubicación, buscar una calle y altura, o tocar y arrastrar el marcador; se muestra la dirección aproximada) y contar qué pasa con una foto opcional (cámara o galería, con vista previa). Los errores se explican al lado de cada campo.
+- Al enviar se muestra el código en grande, con "Copiar", "Compartir" y "Ver estado". Si hay reportes parecidos cerca se avisa, sin bloquear.
+- *Seguimiento*: línea de tiempo Recibido → Revisado → En obra → Resuelto, con una explicación de cada paso (también si el reporte fue descartado). Los códigos usados en el dispositivo quedan como atajos y un enlace `#seguimiento=INC-XXXXXX` abre el reporte directo.
+
+**Inspector** (y autoridad)
+- *Mi trabajo*: qué visitar (mapa y lista, de las más antiguas a las más nuevas o las más cercanas a su ubicación) y qué revisar (avances, fotos y cierres). El tablero de indicadores queda en su propia pestaña.
+- *Bandeja*: filtros por estado y categoría con contadores, búsqueda por código y orden por antigüedad o cercanía.
+- *Detalle*: mini-mapa, dirección aproximada, botón "Cómo llegar", fotos ampliables. Inspección con botones grandes (Confirmar, Descartar, Es duplicado), gravedad, candidatos a duplicado ordenados por distancia, frases rápidas y foto opcional. Al guardar, "Siguiente" lleva al próximo pendiente.
+- *Revisión de avances*: panel con la foto de la actividad al lado; se puede validar un porcentaje menor al declarado. El historial se cuenta en frases ("Se validó el avance de Excavación: 60 %").
+
+Las direcciones usan Nominatim de OpenStreetMap con un pedido por segundo como máximo. Es un servicio público gratuito: para un uso intensivo hay que instalar una instancia propia.
 
 ## Cómo se agrega un ente
 

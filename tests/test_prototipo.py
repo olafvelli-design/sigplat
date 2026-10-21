@@ -446,6 +446,78 @@ class AutorizacionPorRol(Base):
         self.assertEqual(e.exception.status, 403)
 
 
+class TrabajoDeInspeccion(Base):
+    def en_ejecucion(self):
+        inc = self.confirmar(self.reporte(lat=-31.30)['codigo'])
+        d = self.intervencion([inc], actividades=('Bacheo',))
+        self.llamar(core.transicion_intervencion, self.resp, {'accion': 'iniciar'}, None, d['id'])
+        return d
+
+    def foto_de(self, quien, iid, d, color=20):
+        self.llamar(core.subir_evidencia, quien, {'tipo': 'avance', 'foto': png(color), 'lat': d['lat'], 'lon': d['lon'],
+                                                  'precision_m': 4, 'capturada_at': ahora_iso(-3)}, None, iid)
+
+    def test_seguimiento_publico_incluye_el_estado_como_codigo(self):
+        r = self.reporte()
+        _, seg = self.llamar(core.seguimiento_publico, None, None, None, r['codigo'])
+        self.assertEqual(seg['estado_codigo'], 'recibida')
+
+    def test_mi_trabajo_lista_lo_pendiente_y_excluye_lo_propio(self):
+        pendiente = self.reporte(lat=-31.5)
+        d = self.en_ejecucion()
+        act = d['actividades'][0]['id']
+        self.llamar(core.declarar_avance, self.resp, {'actividad_id': act, 'pct': 70}, None, d['id'])
+        self.foto_de(self.resp, d['id'], d)
+        _, t = self.llamar(core.mi_trabajo, self.insp)
+        self.assertEqual([i['codigo'] for i in t['para_inspeccionar']], [pendiente['codigo']])
+        self.assertEqual([(a['actividad'], a['pct']) for a in t['avances_pendientes']], [('Bacheo', 70.0)])
+        self.assertEqual(len(t['evidencias_pendientes']), 1)
+        self.assertTrue(t['evidencias_pendientes'][0]['url'].startswith('/api/fotos/'))
+        self.assertEqual(t['contadores'], {'para_inspeccionar': 1, 'avances': 1, 'evidencias': 1, 'cierres': 0})
+        # una foto que sube la misma persona de inspección no aparece para que la revise ella, pero sí para otra
+        self.foto_de(self.insp, d['id'], d, color=30)
+        _, propia = self.llamar(core.mi_trabajo, self.insp)
+        _, ajena = self.llamar(core.mi_trabajo, self.auth)
+        self.assertEqual(len(propia['evidencias_pendientes']), 1)
+        self.assertEqual(len(ajena['evidencias_pendientes']), 2)
+
+    def test_mi_trabajo_solo_para_inspeccion(self):
+        for quien in (self.resp, None):
+            with self.assertRaises(core.ApiError) as e:
+                self.llamar(core.mi_trabajo, quien)
+            self.assertIn(e.exception.status, (401, 403))
+
+    def test_foto_de_inspeccion_sobre_una_incidencia(self):
+        r = self.reporte()
+        inc = self.c.execute('SELECT id, lat, lon FROM incidencias WHERE codigo=?', (r['codigo'],)).fetchone()
+        cuerpo = {'foto': png(40), 'lat': inc['lat'], 'lon': inc['lon'], 'precision_m': 5, 'capturada_at': ahora_iso(-2)}
+        st, ev = self.llamar(core.subir_evidencia_incidencia, self.insp, cuerpo, None, inc['id'])
+        self.assertEqual((st, ev['tipo']), (201, 'inspeccion'))
+        _, ficha = self.llamar(core.ficha_incidencia, self.insp, None, None, inc['id'])
+        self.assertIn('inspeccion', [e['tipo'] for e in ficha['evidencias']])
+        with self.assertRaises(core.ApiError) as e:
+            self.llamar(core.subir_evidencia_incidencia, self.resp, cuerpo, None, inc['id'])
+        self.assertEqual(e.exception.status, 403)
+        self.llamar(core.inspeccionar, self.insp, {'resultado': 'descartada', 'observaciones': 'No corresponde'}, None, inc['id'])
+        with self.assertRaises(core.ApiError) as e:
+            self.llamar(core.subir_evidencia_incidencia, self.insp, cuerpo, None, inc['id'])
+        self.assertEqual(e.exception.status, 409)
+
+    def test_historial_de_la_intervencion_incluye_avances_y_evidencias(self):
+        d = self.en_ejecucion()
+        act = d['actividades'][0]['id']
+        self.llamar(core.declarar_avance, self.resp, {'actividad_id': act, 'pct': 60}, None, d['id'])
+        self.foto_de(self.resp, d['id'], d)
+        av = self.c.execute('SELECT id FROM avances WHERE actividad_id=?', (act,)).fetchone()['id']
+        self.llamar(core.revisar_avance, self.insp, {'accion': 'validar', 'pct_validado': 50}, None, av)
+        _, ficha = self.llamar(core.ficha_intervencion, self.insp, None, None, d['id'])
+        hechos = {(h['entidad'], h['accion']) for h in ficha['historial']}
+        self.assertIn(('avance', 'declarado'), hechos)
+        self.assertIn(('avance', 'validado'), hechos)
+        self.assertIn(('evidencia', 'recibida'), hechos)
+        self.assertIn(('intervencion', 'creada'), hechos)
+
+
 class CuentaVecino(ServidorHTTP):
     """El vecino con cuenta reporta y ve sólo lo suyo; nada interno del ente."""
     def setUp(self):

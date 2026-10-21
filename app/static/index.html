@@ -6,114 +6,292 @@
 <title>SIGPLAT · prototipo</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
-  :root { --fg:#1f2933; --muted:#55606e; --line:#cfd6df; --bg:#f2f3f5; --card:#fff; --acc:#2c4a66; --head:#1d2f42; --thead:#e9ecf0; --warn:#8a5a00; --ok:#1e6b38; --bad:#a51d1d; }
-  :root[data-theme="dark"] { --fg:#e6e9ee; --muted:#9aa4b2; --line:#2e3642; --bg:#12171e; --card:#1a2029; --acc:#9db4cc; --head:#141e2a; --thead:#232b36; --warn:#fbbf24; --ok:#4ade80; --bad:#f87171; }
-  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --fg:#e6e9ee; --muted:#9aa4b2; --line:#2e3642; --bg:#12171e; --card:#1a2029; --acc:#9db4cc; --head:#141e2a; --thead:#232b36; --warn:#fbbf24; --ok:#4ade80; --bad:#f87171; } }
+  :root { --fg:#1f2933; --muted:#55606e; --line:#cfd6df; --bg:#f2f3f5; --card:#fff; --acc:#2c4a66; --on-acc:#fff; --head:#1d2f42; --thead:#e9ecf0;
+          --warn:#8a5a00; --ok:#1e6b38; --on-ok:#fff; --bad:#a51d1d; --foco:#b45309; --suave:rgba(44,74,102,.08); }
+  :root[data-theme="dark"] { --fg:#e6e9ee; --muted:#9aa4b2; --line:#2e3642; --bg:#12171e; --card:#1a2029; --acc:#9db4cc; --on-acc:#0b1a2a; --head:#141e2a; --thead:#232b36;
+          --warn:#fbbf24; --ok:#4ade80; --on-ok:#06260f; --bad:#f87171; --foco:#fbbf24; --suave:rgba(157,180,204,.12); }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --fg:#e6e9ee; --muted:#9aa4b2; --line:#2e3642; --bg:#12171e; --card:#1a2029; --acc:#9db4cc; --on-acc:#0b1a2a; --head:#141e2a; --thead:#232b36;
+          --warn:#fbbf24; --ok:#4ade80; --on-ok:#06260f; --bad:#f87171; --foco:#fbbf24; --suave:rgba(157,180,204,.12); } }
   * { box-sizing: border-box; }
-  body { margin:0; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--fg); }
-  header { background: var(--head); color:#fff; padding: 10px 16px; display:flex; flex-wrap:wrap; gap:10px; align-items:center; border-bottom: 3px solid #b8975a; }
-  header label, header .small { color: #cdd9e6; }
-  header h1 { font-size: 17px; margin: 0 12px 0 0; font-weight: 700; letter-spacing: .2px; }
-  select, input, textarea, button { font: inherit; color: var(--fg); background: var(--card); border:1px solid var(--line); border-radius:3px; padding:6px 8px; }
-  header select, header input { border-color: #3d5a80; }
-  button { cursor:pointer; background: var(--acc); color:#fff; border-color: var(--acc); }
+  body { margin:0; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--fg); }
+  body.sin-scroll { overflow: hidden; }
+  .sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+  .saltar { position:absolute; left:-999px; top:0; background:#fff; color:#000; padding:10px; z-index:200; }
+  .saltar:focus { left:8px; top:8px; }
+  :focus-visible { outline: 3px solid var(--foco); outline-offset: 2px; }
+  [hidden] { display:none !important; }
+
+  header { background: var(--head); color:#fff; padding: 8px 16px; display:flex; flex-wrap:wrap; gap:12px; align-items:center; border-bottom: 3px solid #b8975a; }
+  header h1 { font-size: 17px; margin: 0 auto 0 0; font-weight: 700; letter-spacing: .2px; }
+  header label { display:flex; gap:6px; align-items:center; color:#cdd9e6; font-size:13px; margin:0; }
+  header select { max-width: 240px; border-color:#3d5a80; }
+  #sesion { display:flex; gap:10px; align-items:center; font-size:14px; color:#e6edf5; }
+  #sesion .rol { color:#cdd9e6; font-size:12px; border:1px solid #3d5a80; border-radius:3px; padding:1px 6px; margin-left:4px; }
+  header button.sec { color:#fff; border-color:#6b86a6; }
+
+  select, input, textarea, button { font: inherit; color: var(--fg); background: var(--card); border:1px solid var(--line); border-radius:4px; padding:8px 10px; min-height:44px; }
+  input[type=radio], input[type=checkbox] { min-height:auto; }
+  textarea { width:100%; min-height:90px; }
+  input[type=text], input[type=search], input[type=number], input:not([type]), input[type=password] { width:100%; }
+  button { cursor:pointer; background: var(--acc); color: var(--on-acc); border-color: var(--acc); font-weight:600; }
   button.sec { background: transparent; color: var(--acc); }
-  header button.sec { color:#fff; border-color:#3d5a80; }
-  button:disabled { opacity:.5; cursor:default; }
-  textarea { width:100%; min-height:70px; }
+  button:disabled { opacity:.55; cursor:default; }
+  button.big { font-size:17px; padding:12px 18px; min-height:52px; }
+  a.btn { display:inline-flex; align-items:center; justify-content:center; min-height:44px; padding:8px 14px; border:1px solid var(--acc); border-radius:4px; color:var(--acc); font-weight:600; text-decoration:none; }
+
   .banner { background:#f7f1e0; color:#4d3a14; border-bottom:1px solid #d9c593; padding:6px 16px; font-size:13px; }
   nav { display:flex; gap:0; padding: 0 16px; flex-wrap:wrap; background: var(--card); border-bottom:1px solid var(--line); }
-  nav button { background: transparent; color: var(--muted); border: 0; border-bottom: 3px solid transparent; border-radius:0; padding: 11px 14px; }
+  nav button { background: transparent; color: var(--muted); border: 0; border-bottom: 3px solid transparent; border-radius:0; padding: 8px 14px; font-weight:500; }
   nav button:hover { color: var(--fg); }
   nav button.on { color: var(--acc); border-bottom-color: var(--acc); font-weight:700; }
-  main { padding: 16px 16px 40px; max-width: 1200px; margin: 0 auto; }
-  .grid { display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
-  .card { background: var(--card); border:1px solid var(--line); border-top: 3px solid var(--acc); border-radius: 3px; padding: 14px; }
-  .card h2 { font-size: 15px; margin: 0 0 10px; color: var(--acc); text-transform: uppercase; letter-spacing: .3px; }
-  .card h2 { border-bottom: 1px solid var(--line); padding-bottom: 6px; }
-  .kpis { display:grid; grid-template-columns: repeat(auto-fill, minmax(180px,1fr)); gap:10px; }
-  .kpi { border-top-width: 1px; border-left: 4px solid var(--acc); }
-  .kpi .v { font-size: 22px; font-weight:700; color: var(--acc); }
-  .kpi .l { font-size: 13px; color: var(--muted); }
-  .kpi .n { font-size: 11px; color: var(--muted); }
-  #mapa { height: 460px; border-radius: 3px; border:1px solid var(--line); }
-  #mapaCiud { height: 260px; border-radius: 3px; border:1px solid var(--line); }
-  table { width:100%; border-collapse: collapse; font-size: 14px; }
-  th, td { text-align:left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  th { background: var(--thead); color: var(--fg); font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: .3px; }
-  tr:hover td { background: rgba(31,78,121,.05); }
-  .badge { display:inline-block; font-size:12px; padding:2px 8px; border-radius:3px; border:1px solid var(--line); background: var(--bg); margin-right:4px; }
-  .b-ok { color: var(--ok); } .b-warn { color: var(--warn); } .b-bad { color: var(--bad); } .b-muted { color: var(--muted); }
-  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin: 6px 0; }
+  main { padding: 16px 16px 48px; max-width: 1200px; margin: 0 auto; }
+
+  .grid2 { display:grid; grid-template-columns: 1fr 1fr; gap:14px; align-items:start; }
+  .grid2.trab { grid-template-columns: minmax(0,1.1fr) minmax(0,1fr); }
+  .card { background: var(--card); border:1px solid var(--line); border-top: 3px solid var(--acc); border-radius: 3px; padding: 14px; margin-bottom: 14px; }
+  .grid2 > .card { margin-bottom:0; }
+  .card.narrow { max-width: 680px; }
+  .card h2 { font-size: 15px; margin: 0 0 10px; color: var(--acc); text-transform: uppercase; letter-spacing: .3px; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+  .card h3 { font-size: 15px; margin: 16px 0 6px; }
+  fieldset { border:0; padding:0; margin:0 0 20px; min-width:0; }
+  legend { font-weight:700; padding:0; margin-bottom:8px; font-size:16px; }
+  label { font-size: 14px; color: var(--muted); display:block; margin-top: 10px; margin-bottom:2px; }
+  .lbl { font-size:14px; color: var(--muted); margin: 10px 0 2px; }
+  .small { font-size: 13px; color: var(--muted); }
+  .error { color: var(--bad); font-weight:600; font-size:14px; margin:4px 0; min-height:0; }
+  .error:empty { display:none; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin: 8px 0; }
   .row > * { flex: 0 0 auto; }
   .row .grow { flex: 1 1 200px; }
-  label { font-size: 13px; color: var(--muted); display:block; margin-top: 8px; }
-  .msg { padding:8px 10px; border-radius:6px; margin:8px 0; font-size:14px; }
-  .msg.ok { background: rgba(21,128,61,.12); color: var(--ok); }
-  .msg.err { background: rgba(185,28,28,.12); color: var(--bad); }
-  .small { font-size: 13px; color: var(--muted); }
-  .fotos img { width: 110px; height: 80px; object-fit: cover; border-radius: 6px; border:1px solid var(--line); margin: 4px 6px 4px 0; }
-  .leyenda span { display:inline-block; margin-right:12px; font-size:13px; }
-  .dot { display:inline-block; width:11px; height:11px; border-radius:50%; margin-right:4px; vertical-align:middle; }
-  .hist { font-size: 13px; color: var(--muted); }
-  .hist div { padding: 3px 0; border-bottom: 1px dashed var(--line); }
+  table { width:100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align:left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { background: var(--thead); font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: .3px; }
+
+  .msg { padding:10px 12px; border-radius:6px; margin:10px 0; font-size:15px; }
+  .msg.ok { background: rgba(30,107,56,.12); color: var(--ok); }
+  .msg.err { background: rgba(165,29,29,.12); color: var(--bad); }
+  .msg.aviso { background: rgba(138,90,0,.12); color: var(--warn); }
+  #toast { position:fixed; left:50%; bottom:20px; transform:translateX(-50%); background:var(--head); color:#fff; padding:12px 18px; border-radius:6px;
+           z-index:300; max-width:92vw; box-shadow:0 4px 16px rgba(0,0,0,.3); }
+  #toast:empty { display:none; }
+
+  .estado { display:inline-flex; align-items:center; gap:6px; font-size:13px; font-weight:600; border:1px solid var(--line); border-radius:999px; padding:2px 10px; background: var(--bg); margin-right:4px; }
+  .dot { display:inline-block; width:11px; height:11px; border-radius:50%; flex:0 0 auto; }
+  .badge { display:inline-block; font-size:12px; padding:2px 8px; border-radius:3px; border:1px solid var(--line); background: var(--bg); margin-right:4px; }
+  .b-ok { color: var(--ok); } .b-warn { color: var(--warn); } .b-bad { color: var(--bad); }
+
+  /* categorías, botones de opción, chips */
+  .cats { display:grid; grid-template-columns: repeat(auto-fill, minmax(150px,1fr)); gap:8px; }
+  .cat { position:relative; display:flex; flex-direction:column; gap:2px; border:2px solid var(--line); border-radius:6px; padding:10px; cursor:pointer; margin:0;
+         min-height:100px; background: var(--card); color: var(--fg); }
+  .cat input { position:absolute; opacity:0; inset:0; width:100%; height:100%; margin:0; cursor:pointer; }
+  .cat .ico { font-size:26px; line-height:1.2; }
+  .cat .nom { font-weight:700; font-size:15px; }
+  .cat:has(input:checked) { border-color: var(--acc); background: var(--suave); }
+  .cat:has(input:checked)::after { content:"✓ Elegido"; position:absolute; top:6px; right:8px; font-size:12px; font-weight:700; color: var(--acc); }
+  .cat:has(input:focus-visible) { outline: 3px solid var(--foco); outline-offset: 2px; }
+  .seg3 { display:grid; grid-template-columns: repeat(3, 1fr); gap:8px; margin:8px 0; }
+  .opt { background: var(--card); color: var(--fg); border:2px solid var(--line); min-height:52px; }
+  .opt[aria-checked="true"] { border-color: var(--acc); background: var(--acc); color: var(--on-acc); }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0; }
+  .chip { background: var(--card); color: var(--fg); border:1px solid var(--line); border-radius:999px; padding:6px 14px; font-weight:500; }
+  .chip[aria-pressed="true"] { background: var(--acc); color: var(--on-acc); border-color: var(--acc); }
+  .chip .n { opacity:.8; font-weight:400; }
+
+  /* mapas */
+  .leaflet-container { z-index: 0; }  /* sus capas internas no deben quedar por encima del detalle ni de los diálogos */
+  #mapa { height: 460px; border-radius:3px; border:1px solid var(--line); }
+  #mapaCiud { height: 300px; border-radius:3px; border:1px solid var(--line); margin-top:10px; }
+  .mapa-trab { height: 280px; border-radius:3px; border:1px solid var(--line); margin:8px 0; }
+  .mini { height: 190px; border-radius:3px; border:1px solid var(--line); margin:8px 0; }
+  .dir { margin:8px 0 2px; font-weight:600; min-height:1.5em; }
+  .resdir { list-style:none; margin:6px 0 0; padding:0; display:grid; gap:6px; }
+  .resdir button { width:100%; text-align:left; background: var(--card); color: var(--fg); font-weight:400; }
+
+  /* listas de trabajo */
+  .lista { list-style:none; margin:10px 0 0; padding:0; display:grid; gap:8px; }
+  .item { display:flex; flex-direction:column; gap:2px; width:100%; text-align:left; background: var(--card); color: var(--fg); border:1px solid var(--line);
+          border-left:4px solid var(--acc); border-radius:4px; padding:10px 12px; font-weight:400; }
+  .item.sel { outline: 2px solid var(--acc); }
+  .item .cod { color: var(--muted); font-size:13px; margin-left:6px; font-weight:400; }
+  .item .meta, .item .desc { font-size:13px; color: var(--muted); }
+  .resumen { display:grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap:10px; margin-bottom:14px; }
+  .resumen .card { margin:0; border-left:4px solid var(--acc); border-top-width:1px; padding:10px 12px; }
+  .resumen .v { font-size:26px; font-weight:700; color: var(--acc); line-height:1.1; }
+  .resumen .l { font-size:13px; color: var(--muted); }
+  .kpis { display:grid; grid-template-columns: repeat(auto-fill, minmax(180px,1fr)); gap:10px; }
+  .kpi { border-top-width:1px; border-left:4px solid var(--acc); margin:0; }
+  .kpi .v { font-size:22px; font-weight:700; color: var(--acc); }
+  .kpi .l { font-size:13px; color: var(--muted); }
+  .kpi .n { font-size:12px; color: var(--muted); }
+  .rev { border:1px solid var(--line); border-radius:4px; padding:10px 12px; margin:8px 0; display:flex; gap:10px; justify-content:space-between; align-items:center; flex-wrap:wrap; }
+  .revgrid { display:grid; grid-template-columns: repeat(auto-fill, minmax(240px,1fr)); gap:10px; }
+
+  /* detalle: columna en escritorio, pantalla completa en el celular */
+  @media (min-width: 761px) { .detalle { position: sticky; top: 8px; max-height: calc(100vh - 16px); overflow: auto; } }
+  .detalle .volver { display:none; margin-bottom:8px; }
+  .detalle .vacio { color: var(--muted); }
+  .detalle h1.t { font-size:18px; margin:0 0 6px; color: var(--fg); text-transform:none; border:0; padding:0; }
+
+  /* fotos y evidencias */
+  .thumb { padding:0; border:1px solid var(--line); background: transparent; min-height:0; border-radius:6px; overflow:hidden; display:inline-block; margin:4px 8px 4px 0; cursor: zoom-in; }
+  .thumb img { display:block; width:200px; max-width:100%; height:150px; object-fit:cover; background: var(--thead); }
+  .ev { display:flex; gap:12px; flex-wrap:wrap; border:1px solid var(--line); border-radius:4px; padding:8px; margin:8px 0; }
+  .ev .info { flex:1 1 200px; min-width:0; }
+  .flag { display:flex; gap:6px; align-items:flex-start; color: var(--warn); font-size:13px; margin:2px 0; }
+  .grupo { font-size:14px; font-weight:700; margin:14px 0 2px; color: var(--muted); }
+  .preview { display:flex; gap:10px; align-items:center; margin:8px 0; flex-wrap:wrap; }
+  .preview img { width:120px; height:90px; object-fit:cover; border-radius:6px; border:1px solid var(--line); }
+  .contador { text-align:right; }
+  .frases { display:flex; flex-wrap:wrap; gap:6px; margin:4px 0 8px; }
+  .frases .chip { font-size:13px; padding:4px 12px; }
+  .dup { display:flex; gap:10px; align-items:center; border:1px solid var(--line); border-radius:4px; padding:8px 10px; margin:6px 0; color: var(--fg); font-size:15px; cursor:pointer; }
+
+  /* barras de avance */
+  .act { border:1px solid var(--line); border-radius:4px; padding:10px 12px; margin:8px 0; }
+  .barra { height:10px; border-radius:5px; background: var(--thead); overflow:hidden; margin:2px 0 6px; }
+  .barra > i { display:block; height:100%; }
+  .barra.decl > i { background:#8aa4c0; }
+  .barra.val > i { background: var(--ok); }
+
+  /* línea de tiempo y eventos */
+  .tl { list-style:none; margin:12px 0; padding:0; }
+  .tl li { display:flex; gap:12px; position:relative; padding-bottom:16px; }
+  .tl li:not(:last-child)::before { content:""; position:absolute; left:15px; top:34px; bottom:0; width:2px; background: var(--line); }
+  .tl .marca { flex:0 0 32px; height:32px; border-radius:50%; border:2px solid var(--line); display:flex; align-items:center; justify-content:center; font-weight:700; background: var(--card); }
+  .tl .hecho .marca { background: var(--ok); border-color: var(--ok); color: var(--on-ok); }
+  .tl .ahora .marca { border-color: var(--acc); color: var(--acc); }
+  .tl .est { font-size:12px; border:1px solid var(--line); border-radius:3px; padding:1px 6px; margin-left:6px; color: var(--muted); font-weight:400; }
+  .tl .falta { opacity:.8; }
+  .tl p { margin:2px 0 0; }
+  .eventos { list-style:none; margin:6px 0; padding:0; }
+  .eventos li { padding:6px 0; border-bottom:1px dashed var(--line); font-size:14px; }
+  .eventos time { display:block; font-size:12px; color: var(--muted); }
+
+  .exito { text-align:center; max-width:640px; margin:0 auto 14px; }
+  .exito .codigo { font-size:34px; font-weight:800; letter-spacing:2px; color: var(--acc); margin:4px 0 12px; word-break:break-all; }
+  .exito .row { justify-content:center; }
+  .tarjeta { border:1px solid var(--line); border-left:4px solid var(--acc); border-radius:4px; padding:12px; margin:10px 0; background: var(--card); }
+
+  /* diálogos */
+  dialog { border:1px solid var(--line); border-top:3px solid var(--acc); border-radius:4px; background: var(--card); color: var(--fg); padding:0; width:min(560px, 94vw); max-height:92vh; }
+  dialog::backdrop { background: rgba(10,16,24,.6); }
+  dialog .cab { padding:14px 16px 0; }
+  dialog .cab h2 { margin:0; font-size:17px; color: var(--acc); }
+  dialog .cuerpo { padding:8px 16px; overflow:auto; max-height:68vh; }
+  dialog .pie { padding:10px 16px 16px; display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+  #dlgFoto { width:min(920px, 96vw); background:#000; border-color:#000; }
+  #dlgFoto img { display:block; width:100%; max-height:84vh; object-fit:contain; }
+  #dlgFoto button { position:absolute; top:8px; right:8px; }
+
+  .atrib { font-size:12px; color: var(--muted); }
   @media (max-width: 760px) {
-    main { padding: 12px 16px 40px; }
-    .grid { grid-template-columns: 1fr; }
+    main { padding: 12px 12px 48px; }
+    .grid2, .grid2.trab { grid-template-columns: 1fr; }
+    .grid2 > .card { margin-bottom: 0; }
     #mapa { height: 340px; }
-    table { font-size: 13px; }
-    th:nth-child(n+4), td:nth-child(n+4) { display:none; }
     header { padding: 8px 12px; }
-    header h1 { width:100%; }
-    header .row, header label { width:100%; }
-    header select, header input { width:100%; }
-    header form.row > * { flex: 1 1 100%; }
-    nav { padding: 0 8px; overflow-x:auto; flex-wrap:nowrap; }
-    nav button { white-space:nowrap; padding: 11px 10px; }
-    .kpi .v { font-size: 20px; }
+    header h1 { flex: 1 1 auto; }
+    nav { padding: 0 6px; overflow-x:auto; flex-wrap:nowrap; }
+    nav button { white-space:nowrap; padding: 8px 12px; }
     .card { padding: 12px; }
+    .detalle { display:none; }
+    .detalle.abierto { display:block; position:fixed; inset:0; z-index:60; overflow:auto; margin:0; border-radius:0; padding:12px 14px 90px; background: var(--card); }
+    .detalle.abierto .volver { display:inline-flex; align-items:center; }
+    .thumb img { width:100%; height:180px; }
+    .thumb { display:block; width:100%; margin-right:0; }
+    .seg3 button { padding:8px 4px; }
+    .exito .codigo { font-size:28px; }
+    button.big { width:100%; }
   }
 </style>
 </head>
 <body>
+<a class="saltar" href="#vista">Saltar al contenido</a>
 <header>
   <h1>SIGPLAT · prototipo</h1>
-  <label style="margin:0">Ente
-    <select id="selEnte"></select>
-  </label>
-  <form id="formLogin" class="row" style="margin:0" autocomplete="on">
-    <input id="lUsuario" placeholder="usuario" autocomplete="username" style="width:170px" required>
-    <input id="lClave" type="password" placeholder="contraseña" autocomplete="current-password" style="width:150px" required>
-    <button>Ingresar</button>
-  </form>
-  <span id="sesion" class="small"></span>
+  <label id="lblEnte" for="selEnte">Ente <select id="selEnte"></select></label>
+  <div id="sesion"></div>
 </header>
 <div class="banner">Prototipo de demostración con <b>datos ficticios</b> y contraseñas locales de prueba. No es un sistema de producción.</div>
-<nav id="tabs"></nav>
-<main id="vista"></main>
+<nav id="tabs" aria-label="Secciones"></nav>
+<main id="vista" tabindex="-1"></main>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<dialog id="dlgLogin" aria-labelledby="tLogin">
+  <form id="formLogin" autocomplete="on">
+    <div class="cab"><h2 id="tLogin">Ingresar</h2></div>
+    <div class="cuerpo">
+      <p class="small">Para el personal del ente y para vecinos que quieran ver sus reportes. Reportar y consultar no requiere cuenta.</p>
+      <label for="lUsuario">Usuario</label>
+      <input id="lUsuario" autocomplete="username" required>
+      <label for="lClave">Contraseña</label>
+      <input id="lClave" type="password" autocomplete="current-password" required>
+      <div id="lMsg" aria-live="polite"></div>
+      <p class="small" id="lAyuda" hidden>En esta demo podés probar con <b>vecino</b> / <b>vecino</b> o <b>inspector</b> / <b>inspector</b>.</p>
+    </div>
+    <div class="pie"><button type="button" class="sec" id="lCancelar">Cancelar</button><button type="submit" id="lEntrar">Ingresar</button></div>
+  </form>
+</dialog>
+<dialog id="dlgAccion" aria-labelledby="tAccion">
+  <div class="cab"><h2 id="tAccion"></h2></div>
+  <div class="cuerpo"></div>
+  <div class="pie"></div>
+</dialog>
+<dialog id="dlgFoto" aria-label="Foto ampliada"><img alt="Foto ampliada"><button type="button" id="cerrarFoto">Cerrar</button></dialog>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 "use strict";
-const ESTADO_COLOR = { recibida:'#6b7280', confirmada:'#d97706', descartada:'#cbd5e1', duplicada:'#6366f1',
-  con_intervencion:'#2563eb', resuelta:'#16a34a' };
-const ESTADO_TXT = { recibida:'Recibida', confirmada:'Confirmada', descartada:'Descartada', duplicada:'Duplicada',
-  con_intervencion:'En intervención', resuelta:'Resuelta', planificada:'Planificada', en_ejecucion:'En ejecución',
-  finalizada_declarada:'Finalizada (declarada)', validada:'Validada', cerrada:'Cerrada' };
+const ESTADO_COLOR = { recibida:'#6b7280', confirmada:'#d97706', descartada:'#94a3b8', duplicada:'#6366f1', con_intervencion:'#2563eb', resuelta:'#16a34a' };
+const ESTADO_TXT = { recibida:'Recibida', confirmada:'Confirmada', descartada:'Descartada', duplicada:'Duplicada', con_intervencion:'En intervención', resuelta:'Resuelta',
+  planificada:'Planificada', en_ejecucion:'En ejecución', finalizada_declarada:'Finalizada (declarada)', validada:'Validada', cerrada:'Cerrada' };
+const GRAV_TXT = { 1:'baja', 2:'media', 3:'alta' };
+const TIPO_EV = { avance:'Avance', cierre:'Cierre', inspeccion:'Inspección', foto_reporte:'Reporte' };
+const ROL_TXT = { inspector:'Inspector', responsable:'Responsable', autoridad:'Autoridad', administrador:'Administrador', vecino:'Vecino' };
 const FLAG_TXT = {
-  sin_fecha_de_captura: 'Sin fecha de captura declarada',
-  fecha_captura_posterior_a_recepcion: 'Fecha de captura posterior a la recepción',
-  fecha_captura_antigua: 'Captura con más de 48 h de antigüedad',
-  precision_geografica_baja_o_desconocida: 'Precisión geográfica baja o desconocida',
-  lejos_de_la_ubicacion_de_referencia: 'Lejos de la ubicación de referencia',
+  sin_fecha_de_captura: 'No tiene fecha de captura declarada',
+  fecha_captura_posterior_a_recepcion: 'La fecha de captura es posterior a la recepción',
+  fecha_captura_antigua: 'Se sacó hace más de 48 horas',
+  precision_geografica_baja_o_desconocida: 'La precisión del lugar es baja o desconocida',
+  lejos_de_la_ubicacion_de_referencia: 'Está lejos del lugar de referencia',
 };
-const flagTxt = f => FLAG_TXT[f] || (f.startsWith('foto_identica') ? 'Foto idéntica a otra evidencia (#' + f.split('_').pop() + ')' : f);
+const flagTxt = f => FLAG_TXT[f] || (f.startsWith('foto_identica') ? 'Es idéntica a otra foto (#' + f.split('_').pop() + ')' : f);
+const FRASES = ['Bache profundo', 'Riesgo para peatones', 'Riesgo para vehículos', 'Requiere señalizar la zona', 'Ya estaba reparado', 'No es competencia municipal', 'Fotos poco claras'];
+const INFO_CAT = [
+  [/bache|pozo|hundimiento/i, '🕳️', 'Pozo o hundimiento en la calzada'],
+  [/cord[oó]n|cuneta/i, '🧱', 'Cordón o cuneta rotos'],
+  [/luminaria|alumbrado/i, '💡', 'Foco o columna sin luz'],
+  [/arbol|poda/i, '🌳', 'Árbol que puede caerse'],
+  [/anegamiento|alcantarilla|desag/i, '🌊', 'Agua acumulada o desagüe tapado'],
+  [/se[ñn]aliz|sem[aá]foro/i, '🚸', 'Cartel o señal dañados'],
+  [/vereda/i, '🚶', 'Vereda rota o levantada'],
+  [/rural|camino/i, '🛣️', 'Camino intransitable'],
+];
+const infoCat = nombre => { const x = INFO_CAT.find(([re]) => re.test(nombre)); return x ? { ico: x[1], txt: x[2] } : { ico: '📌', txt: '' }; };
 
-const S = { ente: null, entes: [], usuarios: [], usuario: null, config: null, tab: 'ciudadano', mapa: null, capa: null };
+const nuevoBorrador = () => ({ categoria: null, punto: null, archivo: null, desc: '', enviando: false, hecho: null });
+const S = { ente: null, entes: [], usuarios: [], usuario: null, config: null, tab: 'ciudadano', mapas: [], mini: null, pos: null,
+  rep: nuevoBorrador(), cod: '', inc: null, trabajo: null, ordenIds: [], items: {}, refrescar: null, ficha: null,
+  trab: { orden: 'antiguas' }, band: { estado: 'recibida', categoria: '', q: '', orden: 'antiguas' }, fotos: new Map(), dirSeq: 0 };
 const $ = sel => document.querySelector(sel);
 const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 const fmt = iso => iso ? new Date(iso).toLocaleString('es-AR', {dateStyle:'short', timeStyle:'short'}) : '—';
 const dia = d => d ? new Date(d + 'T12:00:00').toLocaleDateString('es-AR') : '—';
+const rolEn = (...r) => !!S.usuario && r.includes(S.usuario.rol);
+function hace(iso) {
+  const d = (Date.now() - new Date(iso).getTime()) / 864e5;
+  if (d < 1) return 'hoy';
+  if (d < 2) return 'ayer';
+  return d < 60 ? `hace ${Math.floor(d)} días` : `hace ${Math.floor(d / 30)} meses`;
+}
+function haversine(lat1, lon1, lat2, lon2) {
+  const r = 6371000, rad = x => x * Math.PI / 180, dp = rad(lat2 - lat1), dl = rad(lon2 - lon1);
+  const a = Math.sin(dp / 2) ** 2 + Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dl / 2) ** 2;
+  return 2 * r * Math.asin(Math.sqrt(a));
+}
+const distTxt = m => m < 1000 ? `${Math.round(m / 10) * 10 || 10} m` : `${(m / 1000).toFixed(1)} km`;
+const estadoBadge = e => `<span class="estado"><i class="dot" style="background:${ESTADO_COLOR[e] || '#6b7280'}"></i>${esc(ESTADO_TXT[e] || e)}</span>`;
 
 async function api(metodo, ruta, cuerpo) {
   // La sesión viaja en una cookie HttpOnly que el navegador envía sola (mismo origen).
@@ -133,9 +311,17 @@ async function api(metodo, ruta, cuerpo) {
 }
 
 function mensaje(el, texto, ok) {
-  el.innerHTML = '<div class="msg ' + (ok ? 'ok' : 'err') + '">' + esc(texto) + '</div>';
+  el.innerHTML = `<div class="msg ${ok ? 'ok' : 'err'}" role="${ok ? 'status' : 'alert'}">${esc(texto)}</div>`;
+}
+let _toast = null;
+function toast(texto) {
+  const t = $('#toast');
+  t.textContent = texto;
+  clearTimeout(_toast);
+  _toast = setTimeout(() => { t.textContent = ''; }, 4200);
 }
 
+// ---------- fotos ----------
 function leerFoto(archivo, maxLado = 1600) {
   return new Promise((resolver, rechazar) => {
     if (!archivo) return resolver(null);
@@ -156,47 +342,207 @@ function leerFoto(archivo, maxLado = 1600) {
     lector.readAsDataURL(archivo);
   });
 }
+async function cargarFotos(raiz) {
+  for (const img of raiz.querySelectorAll('img[data-foto]')) {
+    const url = img.dataset.foto;
+    try {
+      if (!S.fotos.has(url)) {
+        const r = await fetch(url, { credentials: 'same-origin' });
+        if (!r.ok) continue;
+        S.fotos.set(url, URL.createObjectURL(await r.blob()));
+      }
+      img.src = S.fotos.get(url);
+    } catch (_) { /* la foto no es crítica para la vista */ }
+  }
+}
+const fotoHtml = (url, alt) => `<button type="button" class="thumb" aria-label="Ver foto ampliada: ${esc(alt)}"><img alt="${esc(alt)}" data-foto="${esc(url)}"></button>`;
+function abrirFoto(src) {
+  if (!src) return;
+  const d = $('#dlgFoto');
+  d.querySelector('img').src = src;
+  d.showModal();
+}
+// Selector de foto con dos botones (cámara y galería), vista previa y "Quitar".
+function fotoPicker(raiz, inicial, alCambiar) {
+  raiz.innerHTML = `<div class="row"><button type="button" class="sec" data-fp="cam">📷 Sacar foto</button><button type="button" class="sec" data-fp="gal">🖼️ Elegir de la galería</button></div>
+    <input type="file" accept="image/*" capture="environment" hidden data-in="cam"><input type="file" accept="image/*" hidden data-in="gal">
+    <div class="preview" hidden><img alt="Vista previa de la foto elegida"><button type="button" class="sec" data-fp="quitar">Quitar foto</button></div>`;
+  const prev = raiz.querySelector('.preview'), img = prev.querySelector('img');
+  let archivo = null, url = null;
+  const poner = f => {
+    if (url) URL.revokeObjectURL(url);
+    archivo = f || null;
+    url = f ? URL.createObjectURL(f) : null;
+    img.src = url || '';
+    prev.hidden = !f;
+    if (alCambiar) alCambiar(archivo);
+  };
+  raiz.onclick = e => {
+    const b = e.target.closest('[data-fp]');
+    if (!b) return;
+    if (b.dataset.fp === 'quitar') return poner(null);
+    raiz.querySelector(`[data-in="${b.dataset.fp}"]`).click();
+  };
+  raiz.querySelectorAll('input[type=file]').forEach(i => { i.onchange = () => { if (i.files[0]) poner(i.files[0]); i.value = ''; }; });
+  if (inicial) poner(inicial);
+  return { archivo: () => archivo, limpiar: () => poner(null) };
+}
 
+// ---------- ubicación y direcciones (Nominatim de OpenStreetMap, con un pedido por segundo como máximo) ----------
 function geo() {
   return new Promise((resolver, rechazar) => {
     if (!navigator.geolocation) return rechazar(new Error('este navegador no entrega ubicación'));
     navigator.geolocation.getCurrentPosition(
-      p => resolver({ lat: p.coords.latitude, lon: p.coords.longitude, precision_m: p.coords.accuracy }),
-      () => rechazar(new Error('no se obtuvo ubicación del dispositivo; marcá el punto en el mapa')),
+      p => resolver({ lat: p.coords.latitude, lon: p.coords.longitude, precision_m: p.coords.accuracy, t: Date.now() }),
+      () => rechazar(new Error('no se pudo obtener tu ubicación; activá el permiso o marcá el punto en el mapa')),
       { enableHighAccuracy: true, timeout: 12000 });
   });
 }
-
-async function cargarFotos(raiz) {
-  for (const img of raiz.querySelectorAll('img[data-foto]')) {
-    try {
-      const r = await fetch(img.dataset.foto, { credentials: 'same-origin' });
-      if (r.ok) img.src = URL.createObjectURL(await r.blob());
-    } catch (_) { /* la foto no es crítica para la vista */ }
-  }
+async function pedirUbicacion() {
+  if (S.pos && Date.now() - S.pos.t < 120000) return S.pos;
+  S.pos = await geo();
+  return S.pos;
+}
+const NOM = { ultimo: 0, cola: Promise.resolve(), cache: new Map() };
+function nominatim(url) {
+  const tarea = NOM.cola.then(async () => {
+    const espera = Math.max(0, NOM.ultimo + 1100 - Date.now());
+    if (espera) await new Promise(r => setTimeout(r, espera));
+    NOM.ultimo = Date.now();
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('el servicio de direcciones no respondió');
+    return r.json();
+  });
+  NOM.cola = tarea.catch(() => {});
+  return tarea;
+}
+function dirCorta(r) {
+  const a = r.address || {};
+  const calle = a.road || a.pedestrian || a.footway || a.path;
+  const barrio = a.suburb || a.neighbourhood || a.city_district || a.quarter;
+  const partes = [calle && (a.house_number ? `${calle} ${a.house_number}` : calle), barrio].filter(Boolean);
+  return partes.length ? partes.join(', ') : String(r.display_name || '').split(',').slice(0, 2).join(',').trim();
+}
+async function direccionDe(lat, lon) {
+  const k = lat.toFixed(5) + ',' + lon.toFixed(5);
+  if (NOM.cache.has(k)) return NOM.cache.get(k);
+  const r = await nominatim(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1&accept-language=es`);
+  const d = dirCorta(r);
+  NOM.cache.set(k, d);
+  return d;
+}
+function buscarDireccion(q) {
+  const [lat, lon] = S.config.centro;
+  const vb = `${lon - 0.15},${lat + 0.12},${lon + 0.15},${lat - 0.12}`;
+  return nominatim(`https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(q)}&limit=5&viewbox=${vb}&bounded=1&countrycodes=ar&addressdetails=1&accept-language=es`);
 }
 
+function nuevoMapa(id, centro, zoom, opts) {
+  const m = L.map(id, opts || {}).setView(centro, zoom);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap', maxZoom: 19 }).addTo(m);
+  S.mapas.push(m);
+  return m;
+}
+function limpiarMapas() {
+  for (const m of S.mapas.concat(S.mini ? [S.mini] : [])) { try { m.remove(); } catch (_) { /* ya no existe */ } }
+  S.mapas = []; S.mini = null;
+}
+
+// ---------- diálogos propios (en lugar de prompt()) ----------
+function modal({ titulo, html, botones, alAbrir }) {
+  return new Promise(resolver => {
+    const d = $('#dlgAccion');
+    d.querySelector('h2').textContent = titulo;
+    d.querySelector('.cuerpo').innerHTML = html;
+    const pie = d.querySelector('.pie');
+    pie.innerHTML = '';
+    botones.forEach(b => {
+      const x = document.createElement('button');
+      x.type = 'button'; x.textContent = b.texto; x.className = b.cls || '';
+      x.onclick = () => {
+        if (b.validar) {
+          const err = b.validar(d);
+          if (err) { const e = d.querySelector('.err-dlg'); if (e) e.textContent = err; return; }
+        }
+        const valor = b.valor ? b.valor(d) : null;
+        d.close();
+        resolver({ id: b.id, valor });
+      };
+      pie.appendChild(x);
+    });
+    d.onclose = () => resolver(null);
+    if (alAbrir) alAbrir(d);
+    d.showModal();
+  });
+}
+const pedirTexto = ({ titulo, etiqueta, minimo = 5, boton = 'Aceptar' }) => modal({
+  titulo,
+  html: `<label for="mTxt">${esc(etiqueta)}</label><textarea id="mTxt" maxlength="1000"></textarea><p class="error err-dlg" role="alert"></p>`,
+  botones: [{ id: 'no', texto: 'Cancelar', cls: 'sec' },
+    { id: 'ok', texto: boton, valor: d => d.querySelector('#mTxt').value.trim(),
+      validar: d => d.querySelector('#mTxt').value.trim().length < minimo ? `Escribí al menos ${minimo} letras.` : null }],
+  alAbrir: d => setTimeout(() => d.querySelector('#mTxt').focus(), 30),
+}).then(r => (r && r.id === 'ok' ? r.valor : null));
+
+// ---------- historial en lenguaje claro ----------
+function eventosHistorial(d) {
+  const nombreAct = {}, actDeAvance = {};
+  for (const a of d.actividades || []) { nombreAct[a.id] = a.nombre; for (const av of a.avances) actDeAvance[av.id] = a.nombre; }
+  const det = h => { try { return JSON.parse(h.detalle || '{}'); } catch (_) { return {}; } };
+  const frase = h => {
+    const x = det(h), k = h.entidad + ':' + h.accion;
+    switch (k) {
+      case 'incidencia:reportada': return 'Se recibió el reporte.';
+      case 'incidencia:inspeccionada_confirmada': return `Un inspector confirmó el problema${x.gravedad ? ' (gravedad ' + GRAV_TXT[x.gravedad] + ')' : ''}.`;
+      case 'incidencia:inspeccionada_descartada': return 'Un inspector revisó el reporte y lo descartó.';
+      case 'incidencia:inspeccionada_duplicada': return 'Un inspector lo agrupó con otro reporte del mismo problema.';
+      case 'intervencion:creada': return 'Se creó la intervención para resolverlo.';
+      case 'intervencion:iniciar': return 'Se inició la ejecución del trabajo.';
+      case 'intervencion:declarar_finalizacion': return 'El responsable declaró que terminó el trabajo.';
+      case 'intervencion:cierre_observado': return 'Se observó el cierre' + (x.observacion ? ': ' + x.observacion : '.');
+      case 'intervencion:validar_cierre': return 'Se validó el cierre del trabajo.';
+      case 'intervencion:cerrar': return 'Se cerró la intervención.';
+      case 'avance:declarado': return `El responsable declaró ${x.pct} % en ${nombreAct[x.actividad] || 'una actividad'}.`;
+      case 'avance:validado': return `Se validó el avance de ${actDeAvance[h.entidad_id] || 'una actividad'}: ${x.pct_validado} %.`;
+      case 'avance:observado': return `Se observó un avance de ${actDeAvance[h.entidad_id] || 'una actividad'}${x.observacion ? ': ' + x.observacion : '.'}`;
+      case 'evidencia:recibida': return `Se subió una foto (${(TIPO_EV[x.tipo] || 'evidencia').toLowerCase()})${(x.banderas || []).length ? ', con avisos de consistencia' : ''}.`;
+      case 'evidencia:validada': return 'Se validó una foto.';
+      case 'evidencia:observada': return 'Se observó una foto' + (x.observacion ? ': ' + x.observacion : '.');
+      default: { const t = h.accion.replace(/_/g, ' '); return t.charAt(0).toUpperCase() + t.slice(1) + '.'; }
+    }
+  };
+  return (d.historial || []).map(h => `<li><time datetime="${esc(h.ocurrido_at)}">${fmt(h.ocurrido_at)}</time>${esc(frase(h))}</li>`).join('');
+}
+
+// ---------- sesión, pestañas y navegación ----------
 function tabsDisponibles() {
-  const t = [['ciudadano', 'Reportar (ciudadano)'], ['seguimiento', 'Seguimiento por código']];
-  if (S.usuario && S.usuario.rol === 'vecino') {
-    t.push(['mis_reportes', 'Mis reportes']);  // la cuenta de vecino no ve nada interno del ente
-  } else if (S.usuario) {
-    const tablero = ['inspector', 'autoridad', 'administrador'].includes(S.usuario.rol);
-    if (tablero) t.push(['mapa', 'Mapa y tablero'], ['incidencias', 'Bandeja de incidencias']);
-    t.push(['intervenciones', S.usuario.rol === 'responsable' ? 'Mis intervenciones' : 'Intervenciones']);
-  }
-  return t;
+  const rol = S.usuario && S.usuario.rol;
+  const publicas = [['ciudadano', 'Reportar'], ['seguimiento', 'Seguimiento']];
+  if (!rol) return publicas;
+  if (rol === 'vecino') return [...publicas, ['mis_reportes', 'Mis reportes']];
+  if (rol === 'responsable') return [['intervenciones', 'Mis intervenciones'], ...publicas];
+  const t = rol === 'administrador' ? [['mapa', 'Tablero y mapa'], ['incidencias', 'Bandeja'], ['intervenciones', 'Intervenciones']]
+    : [['trabajo', 'Mi trabajo'], ['incidencias', 'Bandeja'], ['intervenciones', 'Intervenciones'], ['mapa', 'Tablero y mapa']];
+  return [...t, ...publicas];
 }
+const aterrizaje = rol => ({ inspector: 'trabajo', autoridad: 'trabajo', responsable: 'intervenciones', vecino: 'mis_reportes', administrador: 'mapa' }[rol] || 'ciudadano');
 
 function pintarTabs() {
   const tabs = tabsDisponibles();
-  if (!tabs.some(t => t[0] === S.tab)) S.tab = 'ciudadano';
-  $('#tabs').innerHTML = tabs.map(([k, l]) => `<button data-tab="${k}" class="${k === S.tab ? 'on' : ''}">${esc(l)}</button>`).join('');
+  if (!tabs.some(t => t[0] === S.tab)) S.tab = aterrizaje(S.usuario && S.usuario.rol);
+  $('#tabs').innerHTML = tabs.map(([k, l]) => `<button type="button" data-tab="${k}" class="${k === S.tab ? 'on' : ''}" ${k === S.tab ? 'aria-current="page"' : ''}>${esc(l)}</button>`).join('');
   $('#tabs').onclick = e => { const b = e.target.closest('button[data-tab]'); if (b) { S.tab = b.dataset.tab; render(); } };
 }
 
-// Estado de sesión: el servidor dice quién es el usuario según la cookie. El ente sale del usuario.
-async function cargarSesion() {
+function leerHash() {
+  const m = /^#seguimiento=(.+)$/.exec(location.hash);
+  if (!m) return false;
+  S.cod = decodeURIComponent(m[1]);
+  S.tab = 'seguimiento';
+  return true;
+}
+
+async function cargarSesion(inicial) {
   S.entes = S.entes.length ? S.entes : await api('GET', '/entes');
   S.usuario = null;
   try {
@@ -208,418 +554,871 @@ async function cargarSesion() {
   }
   if (!S.ente || !S.entes.some(e => e.codigo === S.ente)) S.ente = S.entes[0].codigo;
   S.config = S.entes.find(e => e.codigo === S.ente).config;
-  S.usuarios = S.usuario && ['inspector', 'autoridad', 'administrador'].includes(S.usuario.rol) ? await api('GET', '/usuarios') : [];
-  if (!tabsDisponibles().some(t => t[0] === S.tab)) S.tab = 'ciudadano';
+  S.usuarios = rolEn('inspector', 'autoridad', 'administrador') ? await api('GET', '/usuarios') : [];
+  S.inc = null;
+  if (inicial && S.usuario && S.tab === 'ciudadano') S.tab = aterrizaje(S.usuario.rol);
   pintarSesion();
   render();
 }
 
 function pintarSesion() {
   const logueado = !!S.usuario;
+  $('#lblEnte').hidden = logueado || S.entes.length < 2;
   $('#selEnte').innerHTML = S.entes.map(e => `<option value="${esc(e.codigo)}">${esc(e.nombre)}</option>`).join('');
   $('#selEnte').value = S.ente;
-  $('#selEnte').disabled = logueado;  // con sesión, el ente lo define el usuario
-  $('#formLogin').style.display = logueado ? 'none' : 'flex';
   $('#sesion').innerHTML = logueado
-    ? `${esc(S.usuario.nombre)} · ${esc(S.usuario.rol)} <button class="sec" id="btnSalir">Salir</button>`
-    : '';
+    ? `<span>${esc(S.usuario.nombre)} <span class="rol">${esc(ROL_TXT[S.usuario.rol] || S.usuario.rol)}</span></span><button type="button" class="sec" id="btnSalir">Salir</button>`
+    : '<button type="button" class="sec" id="btnIngresar">Ingresar</button>';
   if (logueado) $('#btnSalir').onclick = cerrarSesion;
+  else $('#btnIngresar').onclick = abrirLogin;
 }
 
+function abrirLogin() {
+  $('#lMsg').innerHTML = '';
+  $('#lAyuda').hidden = !window.SIGPLAT_DEMO;
+  $('#dlgLogin').showModal();
+  $('#lUsuario').focus();
+}
 async function iniciarSesion(ev) {
   ev.preventDefault();
+  const b = $('#lEntrar');
+  b.disabled = true; b.textContent = 'Ingresando…';
   try {
     await api('POST', '/login', { login: $('#lUsuario').value.trim(), password: $('#lClave').value });
     $('#lClave').value = '';
+    $('#dlgLogin').close();
     await cargarSesion();
-    S.tab = { responsable: 'intervenciones', vecino: 'mis_reportes' }[S.usuario.rol] || 'mapa';
+    S.tab = aterrizaje(S.usuario.rol);
     render();
+    toast('Hola, ' + S.usuario.nombre);
   } catch (err) {
-    mensaje($('#vista'), err.message, false);
+    mensaje($('#lMsg'), err.message, false);
+  } finally {
+    b.disabled = false; b.textContent = 'Ingresar';
   }
 }
-
 async function cerrarSesion() {
   await api('POST', '/logout', {});
-  S.tab = 'ciudadano';
+  S.tab = 'ciudadano'; S.rep = nuevoBorrador();
   await cargarSesion();
 }
 
 function render() {
   pintarTabs();
-  const v = { ciudadano: vistaCiudadano, seguimiento: vistaSeguimiento, mis_reportes: vistaMisReportes, mapa: vistaMapa,
-              incidencias: vistaIncidencias, intervenciones: vistaIntervenciones }[S.tab];
-  S.capa = null;
-  v();
+  limpiarMapas();
+  cerrarDetalle();
+  S.refrescar = null;
+  const vista = { ciudadano: vistaCiudadano, seguimiento: vistaSeguimiento, mis_reportes: vistaMisReportes, trabajo: vistaTrabajo, mapa: vistaMapa,
+                  incidencias: vistaIncidencias, intervenciones: vistaIntervenciones }[S.tab];
+  const r = vista();
+  if (r && r.catch) r.catch(err => mensaje($('#vista'), err.message, false));
 }
 
-// ---------- CIUDADANO ----------
+// detalle: columna a la derecha en escritorio, pantalla completa con "Volver" en el celular
+function abrirDetalle(html) {
+  const d = $('#detalle');
+  if (!d) return null;
+  d.innerHTML = `<button type="button" class="sec volver" data-volver>← Volver</button>${html}`;
+  d.classList.add('abierto');
+  if (matchMedia('(max-width: 760px)').matches) { document.body.classList.add('sin-scroll'); d.scrollTop = 0; }
+  cargarFotos(d);
+  return d;
+}
+function cerrarDetalle() {
+  const d = $('#detalle');
+  if (d) d.classList.remove('abierto');
+  document.body.classList.remove('sin-scroll');
+}
+const detalleVacio = txt => { const d = $('#detalle'); if (d) d.innerHTML = `<p class="vacio">${esc(txt)}</p>`; };
+
+// ---------- CIUDADANO: reportar ----------
 function vistaCiudadano() {
-  const cats = S.config.categorias.map(c => `<option>${esc(c)}</option>`).join('');
+  const R = S.rep;
+  if (R.hecho) return pintarExito();
+  const cats = S.config.categorias.map(c => {
+    const i = infoCat(c);
+    return `<label class="cat"><input type="radio" name="cat" value="${esc(c)}" ${R.categoria === c ? 'checked' : ''}><span class="ico" aria-hidden="true">${i.ico}</span><span class="nom">${esc(c)}</span><span class="small">${esc(i.txt)}</span></label>`;
+  }).join('');
   $('#vista').innerHTML = `
-  <div class="grid">
-    <div class="card">
-      <h2>Reportar un problema en la vía pública</h2>
-      <p class="small">Ubicá el problema en el mapa o usá tu ubicación. Recibirás un código para seguirlo.
-        ${S.usuario && S.usuario.rol === 'vecino' ? 'Como iniciaste sesión, el reporte también queda en "Mis reportes".' : ''}</p>
-      <label>Categoría</label><select id="rCat">${cats}</select>
-      <label>Descripción (10 a 500 caracteres)</label><textarea id="rDesc" maxlength="500"></textarea>
-      <label>Foto (opcional)</label><input type="file" id="rFoto" accept="image/*" capture="environment">
-      <div class="row"><button class="sec" id="rGeo">Usar mi ubicación</button>
-        <span class="small" id="rCoords">Sin ubicación: tocá el mapa.</span></div>
-      <div id="mapaCiud"></div>
-      <div class="row"><button id="rEnviar">Enviar reporte</button></div>
-      <div id="rMsg"></div>
-    </div>
-    <div class="card"><h2>Qué pasa después</h2>
-      <ol class="small">
+  <div class="grid2">
+    <section class="card" aria-labelledby="hRep">
+      <h2 id="hRep">Reportar un problema en la vía pública</h2>
+      <form id="formRep" novalidate>
+        <fieldset><legend>1. ¿Qué pasa?</legend>
+          <div class="cats">${cats}</div><p class="error" id="eCat" role="alert"></p></fieldset>
+        <fieldset><legend>2. ¿Dónde está?</legend>
+          <button type="button" class="big" id="btnUbic">📍 Usar mi ubicación</button>
+          <label for="qDir">O buscá la dirección</label>
+          <div class="row"><input id="qDir" class="grow" placeholder="Calle y altura, por ejemplo Colón 500" autocomplete="off"><button type="button" class="sec" id="btnBuscar">Buscar</button></div>
+          <ul class="resdir" id="resDir" aria-live="polite"></ul>
+          <div id="mapaCiud" role="application" aria-label="Mapa para marcar el lugar del problema"></div>
+          <p class="dir" id="dirTxt" aria-live="polite">Tocá el mapa para marcar el lugar. Después podés arrastrar el marcador para ajustarlo.</p>
+          <p class="error" id="eUbic" role="alert"></p>
+          <p class="atrib">La búsqueda y la dirección usan datos de OpenStreetMap.</p></fieldset>
+        <fieldset><legend>3. Contanos y sumá una foto</legend>
+          <label for="rDesc">Descripción</label>
+          <textarea id="rDesc" maxlength="500" aria-describedby="cDesc eDesc">${esc(R.desc)}</textarea>
+          <div class="small contador" id="cDesc" aria-live="polite"></div><p class="error" id="eDesc" role="alert"></p>
+          <div id="fotoRep"></div><p class="small">La foto es opcional, pero ayuda mucho a quien va a inspeccionar.</p></fieldset>
+        <button type="submit" class="big" id="rEnviar">Enviar reporte</button>
+        <div id="rMsg"></div>
+      </form>
+    </section>
+    <section class="card"><h2>Qué pasa después</h2>
+      <ol>
         <li>Un inspector verifica el problema en el terreno.</li>
-        <li>Si corresponde, se crea una intervención (mantenimiento, orden de trabajo u obra).</li>
-        <li>Podés consultar el estado con tu código, sin iniciar sesión.</li>
+        <li>Si corresponde, se organiza el trabajo para resolverlo.</li>
+        <li>Con tu código seguís el estado cuando quieras, sin iniciar sesión.</li>
       </ol>
       <p class="small">Un reporte no equivale a una evaluación técnica: se confirma o descarta en inspección.</p>
-    </div>
+      ${rolEn('vecino') ? '<p class="small">Como iniciaste sesión, tus reportes también aparecen en "Mis reportes".</p>'
+        : '<p class="small">No hace falta tener cuenta. No te pedimos datos personales para reportar.</p>'}
+    </section>
   </div>`;
-  const mapa = L.map('mapaCiud').setView(S.config.centro, 14);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(mapa);
-  let marca = null, punto = null;
-  mapa.on('click', e => { punto = { lat: e.latlng.lat, lon: e.latlng.lng, precision_m: null }; poner(e.latlng); });
-  function poner(ll) {
-    if (marca) marca.setLatLng(ll); else marca = L.marker(ll).addTo(mapa);
-    $('#rCoords').textContent = `Ubicación: ${ll.lat.toFixed(5)}, ${ll.lng.toFixed(5)}`;
-  }
-  $('#rGeo').onclick = async () => {
-    try { punto = await geo(); poner({ lat: punto.lat, lng: punto.lon }); mapa.setView([punto.lat, punto.lon], 17);
-      $('#rCoords').textContent += ` (precisión ±${Math.round(punto.precision_m)} m)`; }
-    catch (err) { mensaje($('#rMsg'), err.message, false); }
+
+  const mapa = nuevoMapa('mapaCiud', S.config.centro, 15);
+  let marca = null;
+  const mostrarDir = () => {
+    const p = R.punto, seq = ++S.dirSeq;
+    if (!p) return;
+    $('#dirTxt').textContent = 'Ubicación marcada. Buscando la dirección…';
+    clearTimeout(mostrarDir.t);
+    mostrarDir.t = setTimeout(async () => {
+      try {
+        const d = await direccionDe(p.lat, p.lon);
+        if (seq === S.dirSeq && $('#dirTxt')) $('#dirTxt').textContent = d ? 'Dirección aproximada: ' + d : 'Ubicación marcada.';
+      } catch (_) { if (seq === S.dirSeq && $('#dirTxt')) $('#dirTxt').textContent = 'Ubicación marcada (no pudimos obtener la dirección, pero el punto es válido).'; }
+    }, 700);
   };
-  $('#rEnviar').onclick = async () => {
-    const msg = $('#rMsg');
+  const poner = (ll, precision, zoom) => {
+    R.punto = { lat: ll.lat, lon: ll.lng ?? ll.lon, precision_m: precision ?? null };
+    const pos = [R.punto.lat, R.punto.lon];
+    if (marca) marca.setLatLng(pos);
+    else {
+      marca = L.marker(pos, { draggable: true, alt: 'Lugar del problema' }).addTo(mapa);
+      marca.on('dragend', () => { const q = marca.getLatLng(); poner({ lat: q.lat, lng: q.lng }, null); });
+    }
+    if (zoom) mapa.setView(pos, zoom);
+    $('#eUbic').textContent = '';
+    mostrarDir();
+  };
+  if (R.punto) { poner({ lat: R.punto.lat, lng: R.punto.lon }, R.punto.precision_m, 17); }
+  mapa.on('click', e => poner(e.latlng, null));
+
+  $('#btnUbic').onclick = async () => {
+    const b = $('#btnUbic');
+    b.disabled = true; b.textContent = 'Buscando tu ubicación…';
+    try { const p = await pedirUbicacion(); poner({ lat: p.lat, lng: p.lon }, p.precision_m, 18); }
+    catch (err) { $('#eUbic').textContent = err.message; }
+    finally { b.disabled = false; b.textContent = '📍 Usar mi ubicación'; }
+  };
+  const buscar = async () => {
+    const q = $('#qDir').value.trim(), lista = $('#resDir');
+    if (q.length < 3) { lista.innerHTML = '<li class="small">Escribí la calle y la altura.</li>'; return; }
+    lista.innerHTML = '<li class="small">Buscando…</li>';
     try {
-      if (!punto) throw new Error('falta la ubicación del problema');
-      const foto = await leerFoto($('#rFoto').files[0]);
+      const rs = await buscarDireccion(q);
+      lista.innerHTML = rs.length ? rs.map((r, i) => `<li><button type="button" data-i="${i}">${esc(dirCorta(r) || r.display_name)}</button></li>`).join('')
+        : '<li class="small">No encontramos esa dirección dentro de la zona de este ente. Probá con otra, o marcala en el mapa.</li>';
+      lista.onclick = e => {
+        const b = e.target.closest('button[data-i]');
+        if (!b) return;
+        const r = rs[+b.dataset.i];
+        poner({ lat: +r.lat, lng: +r.lon }, null, 18);
+        NOM.cache.set((+r.lat).toFixed(5) + ',' + (+r.lon).toFixed(5), dirCorta(r));
+        lista.innerHTML = '';
+      };
+    } catch (_) { lista.innerHTML = '<li class="small">No pudimos buscar la dirección ahora. Marcá el lugar tocando el mapa.</li>'; }
+  };
+  $('#btnBuscar').onclick = buscar;
+  $('#qDir').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); buscar(); } };
+
+  document.querySelectorAll('input[name=cat]').forEach(i => { i.onchange = () => { R.categoria = i.value; $('#eCat').textContent = ''; }; });
+  const actualizarContador = () => {
+    const n = $('#rDesc').value.trim().length;
+    $('#cDesc').textContent = `${$('#rDesc').value.length} / 500 · mínimo 10 letras`;
+    return n;
+  };
+  $('#rDesc').oninput = () => { R.desc = $('#rDesc').value; actualizarContador(); if (R.desc.trim().length >= 10) $('#eDesc').textContent = ''; };
+  actualizarContador();
+  fotoPicker($('#fotoRep'), R.archivo, f => { R.archivo = f; });
+
+  $('#formRep').onsubmit = async ev => {
+    ev.preventDefault();
+    if (R.enviando) return;
+    const errores = [];
+    if (!R.categoria) { $('#eCat').textContent = 'Elegí qué tipo de problema es.'; errores.push('#eCat'); }
+    if (!R.punto) { $('#eUbic').textContent = 'Marcá dónde está el problema: usá tu ubicación, buscá la dirección o tocá el mapa.'; errores.push('#eUbic'); }
+    const n = $('#rDesc').value.trim().length;
+    if (n < 10) { $('#eDesc').textContent = `Contanos un poco más: mínimo 10 letras (te faltan ${10 - n}).`; errores.push('#eDesc'); }
+    if (errores.length) { $(errores[0]).scrollIntoView({ block: 'center', behavior: 'smooth' }); return; }
+    R.enviando = true;
+    const btn = $('#rEnviar');
+    btn.disabled = true; btn.textContent = 'Enviando…';
+    try {
+      const foto = await leerFoto(R.archivo);
       const r = await api('POST', '/incidencias', {
-        ente: S.ente, categoria: $('#rCat').value, descripcion: $('#rDesc').value,
-        lat: punto.lat, lon: punto.lon, precision_m: punto.precision_m, canal: 'web',
-        capturada_at: new Date().toISOString().replace(/\.\d+Z$/, 'Z'), foto });
-      let txt = `Reporte recibido. Tu código de seguimiento es ${r.codigo}. Guardalo: con él consultás el estado en "Seguimiento por código".`;
-      if (r.posibles_duplicados.length) txt += ` Hay ${r.posibles_duplicados.length} reporte(s) cercano(s) del mismo tipo; el municipio lo evaluará.`;
-      mensaje(msg, txt, true);
-      $('#rDesc').value = '';
-    } catch (err) { mensaje(msg, err.message, false); }
+        ente: S.ente, categoria: R.categoria, descripcion: $('#rDesc').value.trim(), lat: R.punto.lat, lon: R.punto.lon,
+        precision_m: R.punto.precision_m, canal: 'web', capturada_at: new Date().toISOString().replace(/\.\d+Z$/, 'Z'), foto });
+      guardarCodigo(r.codigo, R.categoria);
+      R.hecho = r;
+      pintarExito();
+    } catch (err) {
+      mensaje($('#rMsg'), err.message, false);
+      btn.disabled = false; btn.textContent = 'Enviar reporte';
+    } finally { R.enviando = false; }
   };
 }
 
-// ---------- SEGUIMIENTO ----------
+const CLAVE_COD = 'sigplat_codigos';
+function codigosGuardados() { try { return JSON.parse(localStorage.getItem(CLAVE_COD) || '[]'); } catch (_) { return []; } }
+function guardarCodigo(codigo, categoria) {
+  try {
+    const l = codigosGuardados().filter(x => x.codigo !== codigo);
+    l.unshift({ codigo, categoria: categoria || '', fecha: new Date().toISOString() });
+    localStorage.setItem(CLAVE_COD, JSON.stringify(l.slice(0, 8)));
+  } catch (_) { /* sin almacenamiento local: sólo se pierde el atajo */ }
+}
+const enlaceSeguimiento = c => location.origin + location.pathname + '#seguimiento=' + encodeURIComponent(c);
+async function copiar(texto) {
+  try { await navigator.clipboard.writeText(texto); return true; }
+  catch (_) {
+    const t = document.createElement('textarea');
+    t.value = texto; document.body.appendChild(t); t.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (__) { /* sin portapapeles */ }
+    t.remove();
+    return ok;
+  }
+}
+
+function pintarExito() {
+  const r = S.rep.hecho, n = r.posibles_duplicados.length;
+  $('#vista').innerHTML = `<section class="card exito" aria-labelledby="hExito">
+    <h2 id="hExito">¡Listo! Recibimos tu reporte</h2>
+    <p>Tu código de seguimiento es</p>
+    <p class="codigo" id="codGrande">${esc(r.codigo)}</p>
+    <div class="row"><button type="button" class="big" id="bCopiar">📋 Copiar código</button>${navigator.share ? '<button type="button" class="big sec" id="bCompartir">↗ Compartir</button>' : ''}</div>
+    <p class="small">Guardalo: con ese código ves cómo avanza tu reporte, sin necesidad de cuenta.</p>
+    ${n ? `<div class="msg aviso" role="status">Ya hay ${n} reporte${n > 1 ? 's' : ''} parecido${n > 1 ? 's' : ''} cerca. El municipio ${n > 1 ? 'los' : 'lo'} va a evaluar juntos; el tuyo igual quedó registrado.</div>` : ''}
+    ${rolEn('vecino') ? '<p class="small">Como iniciaste sesión, también lo ves en "Mis reportes".</p>' : ''}
+    <div class="row"><button type="button" class="big sec" id="bVer">Ver estado</button><button type="button" class="big sec" id="bOtro">Hacer otro reporte</button></div>
+  </section>`;
+  $('#hExito').scrollIntoView({ block: 'start' });
+  $('#bCopiar').onclick = async () => toast((await copiar(r.codigo)) ? 'Código copiado' : 'No se pudo copiar: anotalo a mano');
+  if ($('#bCompartir')) $('#bCompartir').onclick = () =>
+    navigator.share({ title: 'Mi reporte', text: `Mi reporte ${r.codigo}`, url: enlaceSeguimiento(r.codigo) }).catch(() => {});
+  $('#bVer').onclick = () => { S.cod = r.codigo; S.tab = 'seguimiento'; render(); };
+  $('#bOtro').onclick = () => { S.rep = nuevoBorrador(); render(); };
+}
+
+// ---------- CIUDADANO: seguimiento ----------
+function pasosSeguimiento(d) {
+  const e = d.estado_codigo, it = d.intervencion;
+  const hechos = { recibida: 1, confirmada: 2, duplicada: 2, descartada: 2, con_intervencion: 2, resuelta: 4 }[e] ?? 1;
+  const revisado = { confirmada: 'Un inspector confirmó el problema.', con_intervencion: 'Un inspector confirmó el problema.', resuelta: 'Un inspector confirmó el problema.',
+    descartada: 'Un inspector revisó el reporte y concluyó que no corresponde intervenir (por ejemplo, porque no es un problema del municipio o ya estaba resuelto). Si creés que hay un error, podés hacer un reporte nuevo con más detalles o una foto.',
+    duplicada: 'Tu reporte se agrupó con otro que ya estaba registrado para el mismo problema. El avance se sigue desde ese reporte.',
+    recibida: 'Un inspector va a verificar el problema en el terreno.' }[e];
+  const obra = it ? `Intervención: ${it.estado_publico.toLowerCase()}. Plazo previsto: ${dia(it.fecha_planificada_fin)}.` : 'Se organiza el trabajo para resolverlo.';
+  const pasos = [
+    { t: 'Recibido', f: d.fecha_reporte, txt: 'Tu reporte llegó al municipio.' },
+    { t: 'Revisado', txt: revisado },
+    { t: 'En obra', txt: obra },
+    { t: 'Resuelto', f: d.fecha_resuelta, txt: 'El problema quedó solucionado.' }];
+  const lista = e === 'descartada' ? pasos.slice(0, 2) : pasos;
+  return lista.map((p, i) => ({ ...p, estado: i < hechos ? 'hecho' : (i === hechos && e !== 'descartada' && e !== 'duplicada' ? 'ahora' : 'falta') }));
+}
+function lineaDeTiempo(d) {
+  const ROT = { hecho: 'Hecho', ahora: 'Ahora', falta: 'Falta' };
+  return `<ol class="tl">${pasosSeguimiento(d).map((p, i) => `<li class="paso ${p.estado}"><span class="marca" aria-hidden="true">${p.estado === 'hecho' ? '✓' : i + 1}</span>
+    <div><b>${p.t}</b><span class="est">${ROT[p.estado]}</span>${p.f ? `<div class="small">${fmt(p.f)}</div>` : ''}<p>${esc(p.txt)}</p></div></li>`).join('')}</ol>`;
+}
+
 function vistaSeguimiento() {
-  $('#vista').innerHTML = `<div class="card" style="max-width:640px">
-    <h2>Seguimiento de un reporte</h2>
+  $('#vista').innerHTML = `<section class="card narrow" aria-labelledby="hSeg"><h2 id="hSeg">Seguimiento de un reporte</h2>
     <p class="small">Ingresá el código que recibiste al enviar el reporte, por ejemplo INC-3F9A2C.</p>
-    <div class="row"><input class="grow" id="sCod" placeholder="INC-XXXXXX" autocomplete="off" autocapitalize="characters" spellcheck="false"><button id="sBuscar">Consultar</button></div>
-    <div id="sRes"></div></div>`;
-  $('#sCod').onkeydown = e => { if (e.key === 'Enter') $('#sBuscar').click(); };
-  $('#sBuscar').onclick = async () => {
+    <form id="formSeg" class="row"><label class="sr" for="sCod">Código de seguimiento</label>
+      <input id="sCod" class="grow" placeholder="INC-XXXXXX" autocomplete="off" autocapitalize="characters" spellcheck="false"><button type="submit" class="big">Consultar</button></form>
+    <div id="recientes"></div><div id="sRes" aria-live="polite"></div></section>`;
+  const rec = codigosGuardados();
+  if (rec.length) {
+    $('#recientes').innerHTML = `<p class="small">Tus reportes en este dispositivo:</p><div class="chips">${rec.map(x =>
+      `<button type="button" class="chip" data-cod="${esc(x.codigo)}">${esc(x.codigo)}${x.categoria ? ' · ' + esc(x.categoria) : ''}</button>`).join('')}</div>`;
+    $('#recientes').onclick = e => { const b = e.target.closest('[data-cod]'); if (b) { $('#sCod').value = b.dataset.cod; consultar(b.dataset.cod); } };
+  }
+  const consultar = async codigo => {
+    $('#sRes').innerHTML = '<p class="small">Consultando…</p>';
     try {
-      const d = await api('GET', '/seguimiento/' + encodeURIComponent($('#sCod').value.trim()));
-      $('#sRes').innerHTML = `<div class="msg ok">${esc(d.codigo)} · ${esc(d.categoria)}</div>
-        <p><b>Estado:</b> ${esc(d.estado)}<br><span class="small">Reportado: ${fmt(d.fecha_reporte)} · ${esc(d.ente)}</span></p>` +
-        (d.intervencion ? `<p><b>Intervención:</b> ${esc(d.intervencion.estado_publico)}
-          · plazo previsto ${dia(d.intervencion.fecha_planificada_fin)}${d.intervencion.fecha_cierre ? ' · cerrada ' + fmt(d.intervencion.fecha_cierre) : ''}</p>` : '');
+      const d = await api('GET', '/seguimiento/' + encodeURIComponent(codigo.trim()));
+      guardarCodigo(d.codigo, d.categoria);
+      $('#sRes').innerHTML = `<h3>${esc(d.codigo)} · ${esc(d.categoria)}</h3>
+        <p class="small">Reportado ${fmt(d.fecha_reporte)} · ${esc(d.ente)}</p>
+        <p><b>Estado:</b> ${esc(d.estado)}</p>${lineaDeTiempo(d)}
+        <div class="row"><button type="button" class="sec" id="bEnlace">🔗 Copiar enlace para compartir</button></div>`;
+      $('#bEnlace').onclick = async () => toast((await copiar(enlaceSeguimiento(d.codigo))) ? 'Enlace copiado' : 'No se pudo copiar el enlace');
     } catch (err) {
       const ayuda = window.SIGPLAT_DEMO && err.status === 404
         ? ' Esta demo guarda los reportes sólo en este navegador: si usaste otro navegador, un modo privado o tocaste "Reiniciar demo", el reporte no está.' : '';
       mensaje($('#sRes'), err.message + ayuda, false);
     }
   };
+  $('#formSeg').onsubmit = ev => { ev.preventDefault(); consultar($('#sCod').value); };
+  if (S.cod) { $('#sCod').value = S.cod; const c = S.cod; S.cod = ''; consultar(c); }
 }
 
-// ---------- MIS REPORTES (cuenta de vecino) ----------
 async function vistaMisReportes() {
-  $('#vista').innerHTML = `<div class="card"><h2>Mis reportes</h2><div id="misRep"><p class="small">Cargando…</p></div></div>`;
+  $('#vista').innerHTML = `<section class="card narrow" aria-labelledby="hMis"><h2 id="hMis">Mis reportes</h2><div id="misRep"><p class="small">Cargando…</p></div></section>`;
+  const lista = await api('GET', '/mis-reportes');
+  $('#misRep').innerHTML = lista.length
+    ? lista.map(r => `<article class="tarjeta"><div class="row"><b>${esc(r.codigo)}</b>${estadoBadge(r.estado_codigo)}</div>
+        <div><b>${esc(r.categoria)}</b> · <span class="small">${fmt(r.fecha_reporte)}</span></div>
+        <div class="small">${esc(r.descripcion)}</div>
+        <div>${esc(r.estado)}${r.intervencion ? ' · Intervención: ' + esc(r.intervencion.estado_publico.toLowerCase()) + ', plazo ' + dia(r.intervencion.fecha_planificada_fin) : ''}</div>
+        <div class="row"><button type="button" class="sec" data-ver="${esc(r.codigo)}">Ver el paso a paso</button></div></article>`).join('')
+      + '<p class="small">Un reporte no equivale a una evaluación técnica: se confirma o descarta en inspección.</p>'
+    : '<p>Todavía no hiciste reportes con esta cuenta. Usá la pestaña "Reportar".</p>';
+  $('#misRep').onclick = e => { const b = e.target.closest('[data-ver]'); if (b) { S.cod = b.dataset.ver; S.tab = 'seguimiento'; render(); } };
+}
+
+// ---------- PERSONAL: listas de incidencias ----------
+async function incidenciasEnte(forzar) {
+  if (!S.inc || forzar) S.inc = await api('GET', '/incidencias');
+  return S.inc;
+}
+function ordenar(lista, modo) {
+  const l = lista.slice();
+  if (modo === 'cerca' && S.pos) {
+    for (const i of l) i._d = haversine(S.pos.lat, S.pos.lon, i.lat, i.lon);
+    return l.sort((a, b) => a._d - b._d);
+  }
+  l.sort((a, b) => a.fecha_reporte < b.fecha_reporte ? -1 : 1);
+  return modo === 'nuevas' ? l.reverse() : l;
+}
+function itemIncidencia(i, sel, conEstado) {
+  const d = S.pos ? distTxt(haversine(S.pos.lat, S.pos.lon, i.lat, i.lon)) : '';
+  return `<li><button type="button" class="item${sel === i.id ? ' sel' : ''}" data-id="${i.id}" style="border-left-color:${ESTADO_COLOR[i.estado || 'recibida']}">
+    <span><b>${esc(i.categoria)}</b><span class="cod">${esc(i.codigo)}</span></span>
+    <span class="meta">${conEstado ? estadoBadge(i.estado) + ' ' : ''}${hace(i.fecha_reporte)}${i.reportes_count > 1 ? ' · ' + i.reportes_count + ' reportes' : ''}${d ? ' · a ' + d : ''}</span>
+    <span class="desc">${esc(i.descripcion)}</span></button></li>`;
+}
+
+// ---------- PERSONAL: Mi trabajo ----------
+async function vistaTrabajo() {
+  $('#vista').innerHTML = `<div class="resumen" id="resumen" aria-live="polite"></div>
+    <div class="grid2 trab">
+      <section class="card" aria-labelledby="hIns"><h2 id="hIns">Para inspeccionar</h2>
+        <div class="chips" role="group" aria-label="Ordenar la lista">
+          <button type="button" class="chip" data-ord="antiguas">Más antiguas primero</button>
+          <button type="button" class="chip" data-ord="cerca">Más cerca de mí</button></div>
+        <div id="mapaTrab" class="mapa-trab" role="application" aria-label="Mapa de reportes para inspeccionar"></div>
+        <ul id="listaInsp" class="lista"></ul>
+      </section>
+      <aside id="detalle" class="detalle card" aria-live="polite"></aside>
+    </div>
+    <section class="card" id="revisar" aria-labelledby="hRev"></section>`;
+  detalleVacio('Elegí un reporte de la lista o del mapa para inspeccionarlo.');
+  document.querySelectorAll('[data-ord]').forEach(b => {
+    b.onclick = async () => {
+      if (b.dataset.ord === 'cerca') {
+        try { await pedirUbicacion(); } catch (err) { toast(err.message); return; }
+      }
+      S.trab.orden = b.dataset.ord;
+      pintarInspeccionar();
+    };
+  });
+  S.refrescar = cargarTrabajo;
+  await cargarTrabajo();
+}
+async function cargarTrabajo() {
+  S.trabajo = await api('GET', '/mi-trabajo');
+  const c = S.trabajo.contadores;
+  $('#resumen').innerHTML = [['para_inspeccionar', 'Para inspeccionar'], ['avances', 'Avances por revisar'], ['evidencias', 'Fotos por revisar'], ['cierres', 'Cierres por validar']]
+    .map(([k, l]) => `<div class="card"><div class="v">${c[k]}</div><div class="l">${l}</div></div>`).join('');
+  pintarInspeccionar(true);
+  pintarRevisar();
+}
+let _capaTrab = null;
+function pintarInspeccionar(recrearMapa) {
+  const sel = S.trab.sel;
+  const lista = ordenar(S.trabajo.para_inspeccionar, S.trab.orden);
+  S.ordenIds = lista.map(i => i.id);
+  S.items = Object.fromEntries(lista.map(i => [i.id, i]));
+  document.querySelectorAll('[data-ord]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.ord === S.trab.orden)));
+  $('#listaInsp').innerHTML = lista.length ? lista.map(i => itemIncidencia(i, sel)).join('')
+    : '<li class="vacio">No hay reportes pendientes de inspección. ¡Buen trabajo!</li>';
+  $('#listaInsp').onclick = e => { const b = e.target.closest('button[data-id]'); if (b) elegirIncidencia(+b.dataset.id, 'trabajo'); };
+  if (recrearMapa || !S.mapas.length) {
+    limpiarMapas();
+    const m = nuevoMapa('mapaTrab', S.config.centro, 13);
+    _capaTrab = L.layerGroup().addTo(m);
+  }
+  _capaTrab.clearLayers();
+  const m = S.mapas[0];
+  const pts = [];
+  for (const i of S.trabajo.para_inspeccionar) {
+    L.circleMarker([i.lat, i.lon], { radius: i.id === sel ? 12 : 8, color: '#111', weight: i.id === sel ? 3 : 1, fillColor: ESTADO_COLOR.recibida, fillOpacity: .9 })
+      .bindTooltip(`${i.categoria} · ${i.codigo}`).on('click', () => elegirIncidencia(i.id, 'trabajo')).addTo(_capaTrab);
+    pts.push([i.lat, i.lon]);
+  }
+  if (S.pos) { L.circleMarker([S.pos.lat, S.pos.lon], { radius: 7, color: '#fff', weight: 2, fillColor: '#2563eb', fillOpacity: 1 }).bindTooltip('Vos estás acá').addTo(_capaTrab); pts.push([S.pos.lat, S.pos.lon]); }
+  if (recrearMapa && pts.length) m.fitBounds(pts, { padding: [24, 24], maxZoom: 16 });
+}
+function elegirIncidencia(id, origen) {
+  S.trab.sel = id;
+  if (origen === 'trabajo' && S.trabajo) pintarInspeccionar();
+  if (origen === 'bandeja') pintarBandeja();
+  return detalleIncidencia(id, origen);
+}
+
+function pintarRevisar() {
+  const t = S.trabajo;
+  const nada = !t.avances_pendientes.length && !t.evidencias_pendientes.length && !t.cierres_pendientes.length;
+  $('#revisar').innerHTML = `<h2 id="hRev">Para revisar</h2>` + (nada ? '<p class="vacio small">No hay nada esperando tu revisión.</p>' : `
+    <h3>Avances declarados (${t.avances_pendientes.length})</h3>
+    ${t.avances_pendientes.map(a => `<div class="rev"><div><b>${esc(a.titulo)}</b> · ${esc(a.actividad)}<br><span class="small">Declarado ${a.pct} % (validado hasta ahora: ${a.pct_validado} %) · ${hace(a.declarado_at)}${a.nota ? ' · ' + esc(a.nota) : ''}</span></div>
+      <button type="button" data-av="${a.avance_id}">Revisar avance</button></div>`).join('') || '<p class="small">Ninguno.</p>'}
+    <h3>Fotos (${t.evidencias_pendientes.length})</h3>
+    <div class="revgrid">${t.evidencias_pendientes.map(e => `<div class="tarjeta">${fotoHtml(e.url, 'Foto de ' + (TIPO_EV[e.tipo] || '').toLowerCase())}
+      <div><b>${esc(e.titulo)}</b> · ${esc((TIPO_EV[e.tipo] || e.tipo))}</div>
+      ${e.banderas.length ? e.banderas.map(f => `<div class="flag"><span aria-hidden="true">⚠️</span><span>${esc(flagTxt(f))}</span></div>`).join('') : '<div class="small b-ok">✓ Sin avisos de consistencia</div>'}
+      <div class="row"><button type="button" data-ev="${e.id}">Revisar foto</button></div></div>`).join('') || '<p class="small">Ninguna.</p>'}</div>
+    <h3>Cierres por validar (${t.cierres_pendientes.length})</h3>
+    ${t.cierres_pendientes.map(c => `<div class="rev"><div><b>${esc(c.titulo)}</b><br><span class="small">El responsable declaró que terminó ${hace(c.fecha_fin_declarada)}.</span></div>
+      <button type="button" class="sec" data-int="${c.id}">Abrir intervención</button></div>`).join('') || '<p class="small">Ninguno.</p>'}`);
+  cargarFotos($('#revisar'));
+  $('#revisar').onclick = e => {
+    const av = e.target.closest('[data-av]'), ev = e.target.closest('[data-ev]'), it = e.target.closest('[data-int]'), th = e.target.closest('button.thumb');
+    if (th) return abrirFoto(th.querySelector('img').src);
+    if (av) { const a = S.trabajo.avances_pendientes.find(x => x.avance_id === +av.dataset.av); return revisarAvanceModal(a); }
+    if (ev) { const x = S.trabajo.evidencias_pendientes.find(y => y.id === +ev.dataset.ev); return revisarFotoModal(x); }
+    if (it) { S.tab = 'intervenciones'; render(); vistaIntervenciones(+it.dataset.int); }
+  };
+}
+
+// revisión de un avance: con la foto de la actividad al lado y posibilidad de validar menos de lo declarado
+async function revisarAvanceModal(a) {
+  let fotos = [];
   try {
-    const lista = await api('GET', '/mis-reportes');
-    $('#misRep').innerHTML = lista.length
-      ? `<table><tr><th>Código</th><th>Categoría</th><th>Estado</th><th>Reportado</th><th>Intervención</th></tr>
-        ${lista.map(r => `<tr><td>${esc(r.codigo)}</td><td>${esc(r.categoria)}<div class="small">${esc(r.descripcion)}</div></td>
-          <td>${esc(r.estado)}</td><td>${fmt(r.fecha_reporte)}</td>
-          <td>${r.intervencion ? esc(r.intervencion.estado_publico) + ' · plazo ' + dia(r.intervencion.fecha_planificada_fin) : '—'}</td></tr>`).join('')}</table>
-        <p class="small">Un reporte no equivale a una evaluación técnica: se confirma o descarta en inspección.</p>`
-      : '<p class="small">Todavía no hiciste reportes con esta cuenta. Usá la pestaña "Reportar (ciudadano)".</p>';
-  } catch (err) { mensaje($('#misRep'), err.message, false); }
+    const f = await api('GET', '/intervenciones/' + a.intervencion_id);
+    fotos = f.evidencias.filter(e => e.actividad_id === a.actividad_id && e.tipo === 'avance').slice(-3);
+  } catch (_) { /* se revisa igual, sin fotos */ }
+  const r = await modal({
+    titulo: 'Revisar avance',
+    html: `<p><b>${esc(a.titulo)}</b> · ${esc(a.actividad)}</p>
+      <p class="small">El responsable declaró <b>${a.pct} %</b>. Validado hasta ahora: ${a.pct_validado} %.${a.nota ? ' Nota: ' + esc(a.nota) : ''}</p>
+      <div>${fotos.length ? fotos.map(e => fotoHtml(e.url, 'Foto del avance')).join('') : '<p class="small">Esta actividad no tiene fotos de avance.</p>'}</div>
+      <label for="mPct">Porcentaje que validás (podés validar menos de lo declarado)</label>
+      <input id="mPct" type="number" min="${a.pct_validado}" max="${a.pct}" step="5" value="${a.pct}">
+      <label for="mObs">Observación (obligatoria si observás)</label><textarea id="mObs" maxlength="1000"></textarea>
+      <p class="error err-dlg" role="alert"></p>`,
+    botones: [
+      { id: 'no', texto: 'Cancelar', cls: 'sec' },
+      { id: 'observar', texto: 'Observar avance', cls: 'sec', valor: d => d.querySelector('#mObs').value.trim(),
+        validar: d => d.querySelector('#mObs').value.trim().length < 5 ? 'Para observar, escribí al menos 5 letras explicando el motivo.' : null },
+      { id: 'validar', texto: 'Validar avance', valor: d => ({ pct: +d.querySelector('#mPct').value, obs: d.querySelector('#mObs').value.trim() }),
+        validar: d => { const v = +d.querySelector('#mPct').value; return (isNaN(v) || v < a.pct_validado || v > a.pct) ? `El porcentaje debe estar entre ${a.pct_validado} y ${a.pct}.` : null; } }],
+    alAbrir: d => { cargarFotos(d); d.querySelector('.cuerpo').onclick = e => { const th = e.target.closest('button.thumb'); if (th) abrirFoto(th.querySelector('img').src); }; },
+  });
+  if (!r || r.id === 'no') return;
+  try {
+    if (r.id === 'validar') await api('POST', `/avances/${a.avance_id}/revision`, { accion: 'validar', pct_validado: r.valor.pct, observacion: r.valor.obs || null });
+    else await api('POST', `/avances/${a.avance_id}/revision`, { accion: 'observar', observacion: r.valor });
+    toast(r.id === 'validar' ? 'Avance validado' : 'Avance observado');
+    if (S.refrescar) await S.refrescar();
+  } catch (err) { toast(err.message); }
+}
+async function revisarFotoModal(e) {
+  const r = await modal({
+    titulo: 'Revisar foto',
+    html: `${fotoHtml(e.url, 'Foto a revisar')}
+      ${(e.banderas || []).length ? (e.banderas).map(f => `<div class="flag"><span aria-hidden="true">⚠️</span><span>${esc(flagTxt(f))}</span></div>`).join('') : '<p class="small b-ok">✓ Sin avisos de consistencia</p>'}
+      <label for="mObs">Observación (obligatoria si observás)</label><textarea id="mObs" maxlength="1000"></textarea><p class="error err-dlg" role="alert"></p>`,
+    botones: [
+      { id: 'no', texto: 'Cancelar', cls: 'sec' },
+      { id: 'observada', texto: 'Observar foto', cls: 'sec', valor: d => d.querySelector('#mObs').value.trim(),
+        validar: d => d.querySelector('#mObs').value.trim().length < 3 ? 'Para observar, escribí el motivo.' : null },
+      { id: 'validada', texto: 'Validar foto', valor: d => d.querySelector('#mObs').value.trim() }],
+    alAbrir: d => { cargarFotos(d); d.querySelector('.cuerpo').onclick = ev => { const th = ev.target.closest('button.thumb'); if (th) abrirFoto(th.querySelector('img').src); }; },
+  });
+  if (!r || r.id === 'no') return;
+  try {
+    await api('POST', `/evidencias/${e.id}/revision`, { accion: r.id, observacion: r.valor || null });
+    toast(r.id === 'validada' ? 'Foto validada' : 'Foto observada');
+    if (S.refrescar) await S.refrescar();
+  } catch (err) { toast(err.message); }
 }
 
-// ---------- MAPA Y TABLERO ----------
-async function vistaMapa() {
-  $('#vista').innerHTML = `<div class="kpis" id="kpis"></div>
-    <div class="grid" style="margin-top:14px">
-      <div class="card"><h2>Mapa operativo</h2>
-        <div class="leyenda small">${Object.entries(ESTADO_COLOR).map(([k, c]) => `<span><i class="dot" style="background:${c}"></i>${ESTADO_TXT[k]}</span>`).join('')}
-          <span>◯ incidencia · borde grueso = intervención</span></div>
-        <div id="mapa"></div></div>
-      <div class="card" id="ficha"><h2>Ficha</h2><p class="small">Seleccioná un punto del mapa.</p></div>
-    </div>`;
-  const d = await api('GET', '/indicadores');
-  $('#kpis').innerHTML = [
-    ['incidencias_pendientes', 'Incidencias pendientes', v => v],
-    ['antiguedad_mediana_pendientes_dias', 'Antigüedad mediana (días)', v => v],
-    ['tiempo_reporte_a_inspeccion_mediano_h', 'Reporte → inspección (h, mediana)', v => v],
-    ['intervenciones_activas', 'Intervenciones activas', v => v],
-    ['obras_atrasadas', 'Atrasadas respecto del plazo', v => v],
-    ['avances_pendientes_revision', 'Avances pendientes de revisión', v => v],
-    ['diferencia_declarado_validado_pp', 'Diferencia declarado − validado (pp)', v => v],
-    ['intervenciones_finalizadas', 'Finalizadas (validadas o cerradas)', v => v],
-    ['cumplimiento_plazos_pct', 'Cumplimiento de plazos (%)', v => v],
-    ['reincidencias_territoriales', 'Reincidencias territoriales', v => v],
-  ].map(([k, label]) => {
-    const x = d[k];
-    const val = x.valor === null || x.valor === undefined ? '—' : x.valor;
-    return `<div class="card kpi"><div class="l">${esc(label)}</div><div class="v">${esc(val)}</div>
-      <div class="n">${x.n ? 'n = ' + x.n + ' · ' : ''}${esc(x.nota)}</div></div>`;
-  }).join('');
-  const m = await api('GET', '/mapa');
-  if (S.mapa) S.mapa.remove();
-  S.mapa = L.map('mapa').setView(m.centro, 14);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(S.mapa);
-  for (const i of m.incidencias) {
-    L.circleMarker([i.lat, i.lon], { radius: 7, color: '#111', weight: 1, fillColor: ESTADO_COLOR[i.estado], fillOpacity: .9 })
-      .bindTooltip(`${esc(i.codigo)} · ${esc(i.categoria)} · ${ESTADO_TXT[i.estado]}`)
-      .on('click', () => fichaIncidencia(i.id)).addTo(S.mapa);
-  }
-  for (const t of m.intervenciones) {
-    L.circleMarker([t.lat, t.lon], { radius: 12, color: t.atrasada ? '#b91c1c' : '#111', weight: 4, fillColor: '#fff', fillOpacity: .6 })
-      .bindTooltip(`${esc(t.titulo)} · ${ESTADO_TXT[t.estado]}${t.atrasada ? ' · ATRASADA' : ''}`)
-      .on('click', () => fichaIntervencion(t.id)).addTo(S.mapa);
-  }
-}
-
-async function fichaIncidencia(id) {
-  const d = await api('GET', '/incidencias/' + id);
-  $('#ficha').innerHTML = `<h2>${esc(d.codigo)} · ${esc(d.categoria)}</h2>
-    <p><span class="badge">${ESTADO_TXT[d.estado]}</span>${d.gravedad ? '<span class="badge">Gravedad ' + d.gravedad + '</span>' : ''}
-    <span class="badge">Reportes agrupados: ${d.reportes_count}</span></p>
-    <p class="small">Reportado ${fmt(d.fecha_reporte)} · canal ${esc(d.canal)} · ${esc(d.descripcion)}</p>
-    <h2 style="margin-top:12px">Inspecciones</h2>
-    ${d.inspecciones.length ? d.inspecciones.map(i => `<div class="hist"><div>${fmt(i.fecha)} · ${esc(i.resultado)} · ${esc(i.observaciones || '')}</div></div>`).join('') : '<p class="small">Sin inspección todavía.</p>'}
-    <h2 style="margin-top:12px">Fotos</h2>
-    <div class="fotos">${d.evidencias.map(e => `<img alt="foto" data-foto="${e.url}">`).join('') || '<span class="small">Sin fotos.</span>'}</div>
-    ${d.intervencion_id ? `<p><button class="sec" onclick="fichaIntervencion(${d.intervencion_id})">Ver intervención</button></p>` : ''}
-    <h2 style="margin-top:12px">Historial</h2>
-    <div class="hist">${d.historial.map(h => `<div>${fmt(h.ocurrido_at)} · ${esc(h.accion)}</div>`).join('')}</div>`;
-  cargarFotos($('#ficha'));
-}
-
-async function fichaIntervencion(id) {
-  S.tab = 'intervenciones';
-  pintarTabs();
-  await vistaIntervenciones(id);
-}
-
-// ---------- BANDEJA DE INCIDENCIAS ----------
+// ---------- PERSONAL: bandeja ----------
 async function vistaIncidencias() {
-  $('#vista').innerHTML = `<div class="grid">
-    <div class="card"><h2>Incidencias</h2>
-      <div class="row"><select id="fEst"><option value="">Todas</option>${Object.keys(ESTADO_TXT).slice(0, 6).map(k => `<option value="${k}">${ESTADO_TXT[k]}</option>`).join('')}</select>
-      <button class="sec" id="fAplicar">Filtrar</button></div>
-      <div id="tabla"></div></div>
-    <div class="card" id="detalle"><h2>Detalle</h2><p class="small">Elegí una incidencia.</p></div></div>`;
-  const cargar = async () => {
-    const est = $('#fEst').value;
-    const lista = await api('GET', '/incidencias' + (est ? '?estado=' + est : ''));
-    $('#tabla').innerHTML = `<table><tr><th>Código</th><th>Categoría</th><th>Estado</th><th>Reportada</th></tr>
-      ${lista.map(i => `<tr style="cursor:pointer" data-id="${i.id}"><td>${esc(i.codigo)}</td><td>${esc(i.categoria)}</td>
-      <td><span class="badge" style="border-color:${ESTADO_COLOR[i.estado]}">${ESTADO_TXT[i.estado]}</span></td><td>${fmt(i.fecha_reporte)}</td></tr>`).join('')}</table>`;
-    $('#tabla').onclick = e => { const tr = e.target.closest('tr[data-id]'); if (tr) detalleBandeja(+tr.dataset.id); };
-  };
-  $('#fAplicar').onclick = cargar;
-  await cargar();
+  const B = S.band;
+  if (rolEn('administrador') && B.estado === 'recibida' && !B.tocado) B.estado = 'todas';
+  $('#vista').innerHTML = `<div class="grid2 trab">
+    <section class="card" aria-labelledby="hBan"><h2 id="hBan">Bandeja de incidencias</h2>
+      <label class="sr" for="bQ">Buscar por código</label>
+      <input id="bQ" type="search" placeholder="Buscar por código, por ejemplo INC-3F9A2C" value="${esc(B.q)}" autocomplete="off">
+      <div class="chips" id="chEstado" role="group" aria-label="Filtrar por estado"></div>
+      <div class="chips" id="chCat" role="group" aria-label="Filtrar por categoría"></div>
+      <div class="chips" id="chOrd" role="group" aria-label="Ordenar la lista"></div>
+      <ul id="listaInc" class="lista"></ul></section>
+    <aside id="detalle" class="detalle card" aria-live="polite"></aside></div>`;
+  detalleVacio('Elegí una incidencia de la lista.');
+  S.refrescar = async () => { await incidenciasEnte(true); pintarBandeja(); };
+  $('#bQ').oninput = () => { B.q = $('#bQ').value; pintarBandeja(); };
+  await incidenciasEnte(true);
+  pintarBandeja();
+}
+function pintarBandeja() {
+  const B = S.band, todas = S.inc || [];
+  const estados = ['todas', 'recibida', 'confirmada', 'con_intervencion', 'resuelta', 'descartada', 'duplicada'];
+  const cuenta = e => e === 'todas' ? todas.length : todas.filter(i => i.estado === e).length;
+  $('#chEstado').innerHTML = estados.map(e => `<button type="button" class="chip" data-e="${e}" aria-pressed="${B.estado === e}">${e === 'todas' ? 'Todas' : esc(ESTADO_TXT[e])} <span class="n">(${cuenta(e)})</span></button>`).join('');
+  const cats = [...new Set(todas.map(i => i.categoria))].sort();
+  $('#chCat').innerHTML = [['', 'Todas las categorías'], ...cats.map(c => [c, c])].map(([v, l]) => `<button type="button" class="chip" data-c="${esc(v)}" aria-pressed="${B.categoria === v}">${esc(l)}</button>`).join('');
+  $('#chOrd').innerHTML = [['antiguas', 'Más antiguas'], ['nuevas', 'Más nuevas'], ['cerca', 'Más cerca de mí']].map(([v, l]) => `<button type="button" class="chip" data-o="${v}" aria-pressed="${B.orden === v}">${l}</button>`).join('');
+  let lista = todas.filter(i => (B.estado === 'todas' || i.estado === B.estado) && (!B.categoria || i.categoria === B.categoria)
+    && (!B.q.trim() || i.codigo.toLowerCase().includes(B.q.trim().toLowerCase())));
+  lista = ordenar(lista, B.orden);
+  S.ordenIds = lista.filter(i => i.estado === 'recibida').map(i => i.id);
+  S.items = Object.fromEntries(todas.map(i => [i.id, i]));
+  $('#listaInc').innerHTML = lista.length ? lista.map(i => itemIncidencia(i, S.trab.sel, true)).join('') : '<li class="vacio small">No hay incidencias con esos filtros.</li>';
+  $('#listaInc').onclick = e => { const b = e.target.closest('button[data-id]'); if (b) elegirIncidencia(+b.dataset.id, 'bandeja'); };
+  const hacer = (sel, fn) => { $(sel).onclick = async e => { const b = e.target.closest('button'); if (b) { B.tocado = true; await fn(b); pintarBandeja(); } }; };
+  hacer('#chEstado', b => { B.estado = b.dataset.e; });
+  hacer('#chCat', b => { B.categoria = b.dataset.c; });
+  hacer('#chOrd', async b => {
+    if (b.dataset.o === 'cerca') { try { await pedirUbicacion(); } catch (err) { toast(err.message); return; } }
+    B.orden = b.dataset.o;
+  });
 }
 
-async function detalleBandeja(id) {
+// ---------- PERSONAL: detalle de una incidencia e inspección ----------
+async function detalleIncidencia(id, origen) {
   const d = await api('GET', '/incidencias/' + id);
-  const puedeInspeccionar = d.estado === 'recibida' && S.usuario.rol !== 'administrador';
-  const puedeCrear = d.estado === 'confirmada' && S.usuario.rol === 'autoridad';
-  const otras = await api('GET', '/incidencias');
-  const candidatas = otras.filter(o => o.id !== id && ['confirmada', 'con_intervencion', 'recibida'].includes(o.estado));
-  $('#detalle').innerHTML = `<h2>${esc(d.codigo)} · ${esc(d.categoria)}</h2>
-    <p><span class="badge">${ESTADO_TXT[d.estado]}</span> <span class="small">${fmt(d.fecha_reporte)} · ${esc(d.descripcion)}</span></p>
-    <p class="small">Lat ${d.lat.toFixed(5)}, lon ${d.lon.toFixed(5)} · precisión ${d.precision_m ?? '—'} m</p>
-    <div class="fotos">${d.evidencias.map(e => `<img alt="foto" data-foto="${e.url}">`).join('')}</div>
-    ${puedeInspeccionar ? `<h2 style="margin-top:12px">Inspección</h2>
-      <label>Resultado</label><select id="iRes"><option value="confirmada">Confirmada (es un problema real)</option>
-        <option value="descartada">Descartada (no corresponde)</option><option value="duplicada">Duplicada de otra incidencia</option></select>
-      <label>Gravedad (si se confirma)</label><select id="iGrav"><option value="1">1 · baja</option><option value="2" selected>2 · media</option><option value="3">3 · alta</option></select>
-      <label>Incidencia principal (si es duplicada)</label><select id="iDup"><option value="">—</option>${candidatas.map(c => `<option value="${c.id}">${esc(c.codigo)} · ${esc(c.categoria)}</option>`).join('')}</select>
-      <label>Observaciones</label><textarea id="iObs"></textarea>
-      <div class="row"><button id="iGuardar">Registrar inspección</button></div><div id="iMsg"></div>` : ''}
-    ${puedeCrear ? `<div class="row"><button id="iCrear">Crear intervención con esta incidencia</button></div>` : ''}
-    <h2 style="margin-top:12px">Historial</h2><div class="hist">${d.historial.map(h => `<div>${fmt(h.ocurrido_at)} · ${esc(h.accion)}</div>`).join('')}</div>`;
-  cargarFotos($('#detalle'));
-  if (puedeInspeccionar) $('#iGuardar').onclick = async () => {
-    try {
-      await api('POST', `/incidencias/${id}/inspeccion`, { resultado: $('#iRes').value, gravedad: +$('#iGrav').value,
-        duplicada_de: $('#iDup').value ? +$('#iDup').value : null, observaciones: $('#iObs').value || 'Sin observaciones' });
-      mensaje($('#iMsg'), 'Inspección registrada.', true);
-      setTimeout(() => detalleBandeja(id), 400);
-    } catch (err) { mensaje($('#iMsg'), err.message, false); }
+  const puedeInspeccionar = d.estado === 'recibida' && rolEn('inspector', 'autoridad');
+  const puedeCrear = d.estado === 'confirmada' && rolEn('autoridad');
+  const panel = abrirDetalle(`
+    <h1 class="t">${esc(d.codigo)} · ${esc(d.categoria)}</h1>
+    <p>${estadoBadge(d.estado)}${d.gravedad ? `<span class="badge">Gravedad ${GRAV_TXT[d.gravedad]}</span>` : ''}<span class="badge">${d.reportes_count} reporte${d.reportes_count > 1 ? 's' : ''}</span></p>
+    <p>${esc(d.descripcion)}</p>
+    <p class="small">Reportado ${fmt(d.fecha_reporte)} (${hace(d.fecha_reporte)}) · canal ${esc(d.canal)}</p>
+    <div id="miniMapa" class="mini" role="img" aria-label="Mapa con el lugar del problema"></div>
+    <div class="row"><span class="small grow" id="dirDet">Dirección aproximada: buscando…</span>
+      <a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${d.lat},${d.lon}">🧭 Cómo llegar</a></div>
+    <h3>Fotos</h3>
+    <div>${d.evidencias.length ? d.evidencias.map(e => `<div>${fotoHtml(e.url, 'Foto de ' + (TIPO_EV[e.tipo] || '').toLowerCase())}<div class="small">${esc(TIPO_EV[e.tipo] || e.tipo)}</div>
+      ${e.banderas.map(f => `<div class="flag"><span aria-hidden="true">⚠️</span><span>${esc(flagTxt(f))}</span></div>`).join('')}</div>`).join('') : '<p class="small">Sin fotos.</p>'}</div>
+    ${d.inspecciones.length ? `<h3>Inspecciones</h3>${d.inspecciones.map(i => `<div class="small">${fmt(i.fecha)} · ${esc(i.resultado)} · ${esc(i.observaciones || '')}</div>`).join('')}` : ''}
+    <div id="bloqueInsp"></div>
+    ${puedeCrear ? '<div class="row"><button type="button" class="big" id="iCrear">Crear intervención con este reporte</button></div>' : ''}
+    ${d.intervencion_id ? `<div class="row"><button type="button" class="sec" id="verInt">Ver la intervención</button></div>` : ''}
+    <h3>Historial</h3><ul class="eventos">${eventosHistorial(d)}</ul>`);
+  if (!panel) return;
+  panel.onclick = e => {
+    const th = e.target.closest('button.thumb');
+    if (th) return abrirFoto(th.querySelector('img').src);
+    if (e.target.closest('[data-volver]')) cerrarDetalle();
   };
+  if (S.mini) { try { S.mini.remove(); } catch (_) { /* ya no está */ } }
+  S.mini = L.map('miniMapa', { scrollWheelZoom: false }).setView([d.lat, d.lon], 17);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap', maxZoom: 19 }).addTo(S.mini);
+  L.marker([d.lat, d.lon]).addTo(S.mini);
+  setTimeout(() => S.mini && S.mini.invalidateSize(), 80);
+  direccionDe(d.lat, d.lon).then(t => { if ($('#dirDet')) $('#dirDet').textContent = t ? 'Dirección aproximada: ' + t : ''; })
+    .catch(() => { if ($('#dirDet')) $('#dirDet').textContent = ''; });
+  if (d.intervencion_id) $('#verInt').onclick = () => fichaIntervencion(d.intervencion_id);
   if (puedeCrear) $('#iCrear').onclick = () => formularioIntervencion(id, d);
+  if (puedeInspeccionar) formularioInspeccion(d, origen);
+}
+
+async function formularioInspeccion(d, origen) {
+  const cont = $('#bloqueInsp');
+  cont.innerHTML = `<h3>Registrar inspección</h3>
+    <div class="seg3" role="radiogroup" aria-label="Resultado de la inspección">
+      <button type="button" class="opt" role="radio" aria-checked="false" data-res="confirmada">✔ Confirmar</button>
+      <button type="button" class="opt" role="radio" aria-checked="false" data-res="descartada">✖ Descartar</button>
+      <button type="button" class="opt" role="radio" aria-checked="false" data-res="duplicada">⧉ Es duplicado</button></div>
+    <p class="error" id="eRes" role="alert"></p>
+    <div id="bGrav" hidden><p class="lbl" id="lGrav">Gravedad</p>
+      <div class="seg3" role="radiogroup" aria-labelledby="lGrav">
+        <button type="button" class="opt" role="radio" aria-checked="false" data-grav="1">Baja</button>
+        <button type="button" class="opt" role="radio" aria-checked="true" data-grav="2">Media</button>
+        <button type="button" class="opt" role="radio" aria-checked="false" data-grav="3">Alta</button></div></div>
+    <div id="bDup" hidden><p class="lbl">¿De cuál es duplicado? (mismo tipo de problema, los más cercanos primero)</p><div id="listaDup"></div>
+      <button type="button" class="sec" id="masDup">Mostrar también los más lejanos</button></div>
+    <label for="iObs">Observaciones</label>
+    <div class="frases" role="group" aria-label="Frases rápidas">${FRASES.map(f => `<button type="button" class="chip" data-frase="${esc(f)}">${esc(f)}</button>`).join('')}</div>
+    <textarea id="iObs" maxlength="1000"></textarea>
+    <p class="lbl">Foto de la inspección (opcional)</p><div id="fotoInsp"></div>
+    <div class="row"><button type="button" class="big" id="iGuardar">Guardar inspección</button></div><div id="iMsg"></div>`;
+  const E = { res: null, grav: 2, dup: null, lejos: false };
+  const foto = fotoPicker($('#fotoInsp'));
+  const marcar = (sel, attr, val) => cont.querySelectorAll(sel).forEach(b => b.setAttribute('aria-checked', String(b.dataset[attr] === String(val))));
+  const pintarDup = async () => {
+    const todas = await incidenciasEnte();
+    const radio = Math.max((S.config.duplicados.radio_m || 50) * 2, 150), tope = E.lejos ? 1000 : radio;
+    const cand = todas.filter(i => i.id !== d.id && i.categoria === d.categoria && !['descartada', 'duplicada'].includes(i.estado))
+      .map(i => ({ ...i, m: haversine(d.lat, d.lon, i.lat, i.lon) })).filter(i => i.m <= tope).sort((a, b) => a.m - b.m).slice(0, 12);
+    $('#listaDup').innerHTML = cand.length ? cand.map(i => `<label class="dup"><input type="radio" name="dup" value="${i.id}" ${E.dup === i.id ? 'checked' : ''}>
+      <span><b>${esc(i.codigo)}</b> · a ${distTxt(i.m)} · ${esc(ESTADO_TXT[i.estado])}</span></label>`).join('')
+      : `<p class="small">No hay reportes del mismo tipo a menos de ${distTxt(tope)}.</p>`;
+    $('#masDup').hidden = E.lejos;
+    $('#listaDup').querySelectorAll('input').forEach(i => { i.onchange = () => { E.dup = +i.value; $('#eRes').textContent = ''; }; });
+  };
+  cont.onclick = e => {
+    const r = e.target.closest('[data-res]'), g = e.target.closest('[data-grav]'), f = e.target.closest('[data-frase]');
+    if (r) {
+      E.res = r.dataset.res; marcar('[data-res]', 'res', E.res); $('#eRes').textContent = '';
+      $('#bGrav').hidden = E.res !== 'confirmada'; $('#bDup').hidden = E.res !== 'duplicada';
+      if (E.res === 'duplicada') pintarDup();
+    }
+    if (g) { E.grav = +g.dataset.grav; marcar('[data-grav]', 'grav', E.grav); }
+    if (f) { const t = $('#iObs'); t.value = t.value.trim() ? t.value.trim().replace(/[.;]$/, '') + '; ' + f.dataset.frase : f.dataset.frase; }
+    if (e.target.id === 'masDup') { E.lejos = true; pintarDup(); }
+  };
+  $('#iGuardar').onclick = async () => {
+    if (!E.res) { $('#eRes').textContent = 'Elegí el resultado: confirmar, descartar o es duplicado.'; return; }
+    if (E.res === 'duplicada' && !E.dup) { $('#eRes').textContent = 'Elegí de cuál reporte es duplicado.'; return; }
+    const b = $('#iGuardar');
+    b.disabled = true; b.textContent = 'Guardando…';
+    try {
+      if (foto.archivo()) {
+        let pos = S.pos && Date.now() - S.pos.t < 300000 ? S.pos : null;
+        if (!pos) { try { pos = await pedirUbicacion(); } catch (_) { /* se usa el lugar del reporte, con precisión desconocida */ } }
+        await api('POST', `/incidencias/${d.id}/evidencias`, { foto: await leerFoto(foto.archivo()), lat: pos ? pos.lat : d.lat, lon: pos ? pos.lon : d.lon,
+          precision_m: pos ? pos.precision_m : null, capturada_at: new Date().toISOString().replace(/\.\d+Z$/, 'Z') });
+      }
+      const ids = S.ordenIds.slice(), k = ids.indexOf(d.id);
+      const sigId = (ids[k + 1] ?? ids.find(x => x !== d.id)) ?? null;
+      const sig = sigId && S.items[sigId] && sigId !== d.id ? S.items[sigId] : null;
+      await api('POST', `/incidencias/${d.id}/inspeccion`, { resultado: E.res, gravedad: E.res === 'confirmada' ? E.grav : null,
+        duplicada_de: E.res === 'duplicada' ? E.dup : null, observaciones: $('#iObs').value.trim() || 'Sin observaciones' });
+      S.inc = null;
+      if (S.refrescar) await S.refrescar();
+      toast('Inspección registrada');
+      $('#detalle').innerHTML = `<button type="button" class="sec volver" data-volver>← Volver</button>
+        <h1 class="t">Inspección registrada</h1><p>${esc(d.codigo)} quedó como <b>${esc(ESTADO_TXT[E.res === 'duplicada' ? 'duplicada' : E.res])}</b>.</p>
+        <div class="row">${sig ? `<button type="button" class="big" id="bSig">Siguiente: ${esc(sig.categoria)} (${esc(sig.codigo)})</button>` : ''}
+        <button type="button" class="big sec" data-volver>Volver a la lista</button></div>`;
+      $('#detalle').onclick = e => { if (e.target.closest('[data-volver]')) { cerrarDetalle(); detalleVacio('Elegí otro reporte de la lista.'); } };
+      if (sig) $('#bSig').onclick = () => elegirIncidencia(sig.id, origen);
+    } catch (err) {
+      mensaje($('#iMsg'), err.message, false);
+      b.disabled = false; b.textContent = 'Guardar inspección';
+    }
+  };
 }
 
 async function formularioIntervencion(incId, inc) {
   const resp = S.usuarios.filter(u => u.rol === 'responsable');
   const tipos = Object.entries(S.config.tipos_intervencion).map(([k, v]) => `<option value="${k}">${esc(v.etiqueta)}</option>`).join('');
-  $('#detalle').innerHTML = `<h2>Nueva intervención</h2>
-    <p class="small">Origen: ${esc(inc.codigo)} · ${esc(inc.categoria)}</p>
-    <label>Tipo (circuito)</label><select id="nTipo">${tipos}</select>
-    <label>Título</label><input id="nTit" class="grow" style="width:100%" value="${esc(inc.categoria)} · ${esc(inc.codigo)}">
-    <label>Responsable</label><select id="nResp">${resp.map(r => `<option value="${r.id}">${esc(r.nombre)}</option>`).join('')}</select>
-    <label>Fecha planificada de finalización</label><input type="date" id="nFin">
-    <label>Actividades (una por línea; requeridas en orden de trabajo y obra)</label><textarea id="nAct"></textarea>
-    <div class="row"><button id="nGuardar">Crear intervención</button></div><div id="nMsg"></div>`;
   const f = new Date(Date.now() + 14 * 864e5).toISOString().slice(0, 10);
-  $('#nFin').value = f;
+  abrirDetalle(`<h1 class="t">Nueva intervención</h1><p class="small">Origen: ${esc(inc.codigo)} · ${esc(inc.categoria)}</p>
+    <label for="nTipo">Tipo de trabajo</label><select id="nTipo">${tipos}</select>
+    <label for="nTit">Título</label><input id="nTit" value="${esc(inc.categoria)} · ${esc(inc.codigo)}">
+    <label for="nResp">Responsable</label><select id="nResp">${resp.map(r => `<option value="${r.id}">${esc(r.nombre)}</option>`).join('')}</select>
+    <label for="nFin">Fecha planificada de finalización</label><input type="date" id="nFin" value="${f}">
+    <label for="nAct">Actividades (una por línea; obligatorias en órdenes de trabajo y obras)</label><textarea id="nAct"></textarea>
+    <div class="row"><button type="button" class="big" id="nGuardar">Crear intervención</button></div><div id="nMsg"></div>`);
+  $('#detalle').onclick = e => { if (e.target.closest('[data-volver]')) cerrarDetalle(); };
   $('#nGuardar').onclick = async () => {
+    const b = $('#nGuardar');
+    b.disabled = true; b.textContent = 'Creando…';
     try {
       const d = await api('POST', '/intervenciones', { tipo: $('#nTipo').value, titulo: $('#nTit').value,
         responsable_id: +$('#nResp').value, fecha_planificada_fin: $('#nFin').value, incidencia_ids: [incId],
         actividades: $('#nAct').value.split('\n').map(s => s.trim()).filter(Boolean) });
-      S.tab = 'intervenciones';
-      render();
-      await vistaIntervenciones(d.id);
-    } catch (err) { mensaje($('#nMsg'), err.message, false); }
+      S.inc = null;
+      toast('Intervención creada');
+      await fichaIntervencion(d.id);
+    } catch (err) { mensaje($('#nMsg'), err.message, false); b.disabled = false; b.textContent = 'Crear intervención'; }
   };
 }
 
-// ---------- INTERVENCIONES ----------
+// ---------- PERSONAL: tablero y mapa ----------
+async function vistaMapa() {
+  $('#vista').innerHTML = `<div class="kpis" id="kpis"></div>
+    <div class="grid2" style="margin-top:14px">
+      <div class="card"><h2>Mapa operativo</h2>
+        <div class="small">${Object.entries(ESTADO_COLOR).map(([k, c]) => `<span style="margin-right:12px;white-space:nowrap"><i class="dot" style="background:${c}"></i> ${ESTADO_TXT[k]}</span>`).join('')}
+          <span>◯ borde grueso = intervención</span></div>
+        <div id="mapa" role="application" aria-label="Mapa operativo"></div></div>
+      <aside id="detalle" class="detalle card" aria-live="polite"></aside>
+    </div>`;
+  detalleVacio('Seleccioná un punto del mapa.');
+  const d = await api('GET', '/indicadores');
+  $('#kpis').innerHTML = [
+    ['incidencias_pendientes', 'Incidencias pendientes'], ['antiguedad_mediana_pendientes_dias', 'Antigüedad mediana (días)'],
+    ['tiempo_reporte_a_inspeccion_mediano_h', 'Reporte → inspección (h, mediana)'], ['intervenciones_activas', 'Intervenciones activas'],
+    ['obras_atrasadas', 'Atrasadas respecto del plazo'], ['avances_pendientes_revision', 'Avances pendientes de revisión'],
+    ['diferencia_declarado_validado_pp', 'Diferencia declarado − validado (pp)'], ['intervenciones_finalizadas', 'Finalizadas (validadas o cerradas)'],
+    ['cumplimiento_plazos_pct', 'Cumplimiento de plazos (%)'], ['reincidencias_territoriales', 'Reincidencias territoriales'],
+  ].map(([k, label]) => {
+    const x = d[k];
+    const val = x.valor === null || x.valor === undefined ? '—' : x.valor;
+    return `<div class="card kpi"><div class="l">${esc(label)}</div><div class="v">${esc(val)}</div><div class="n">${x.n ? 'n = ' + x.n + ' · ' : ''}${esc(x.nota)}</div></div>`;
+  }).join('');
+  const m = await api('GET', '/mapa');
+  const mapa = nuevoMapa('mapa', m.centro, 14);
+  for (const i of m.incidencias) {
+    L.circleMarker([i.lat, i.lon], { radius: 7, color: '#111', weight: 1, fillColor: ESTADO_COLOR[i.estado], fillOpacity: .9 })
+      .bindTooltip(`${i.codigo} · ${i.categoria} · ${ESTADO_TXT[i.estado]}`).on('click', () => detalleIncidencia(i.id, 'mapa')).addTo(mapa);
+  }
+  for (const t of m.intervenciones) {
+    L.circleMarker([t.lat, t.lon], { radius: 12, color: t.atrasada ? '#b91c1c' : '#111', weight: 4, fillColor: '#fff', fillOpacity: .6 })
+      .bindTooltip(`${t.titulo} · ${ESTADO_TXT[t.estado]}${t.atrasada ? ' · ATRASADA' : ''}`).on('click', () => fichaIntervencion(t.id)).addTo(mapa);
+  }
+}
+
+// ---------- PERSONAL Y RESPONSABLE: intervenciones ----------
+async function fichaIntervencion(id) {
+  S.tab = 'intervenciones';
+  render();
+  await vistaIntervenciones(id);
+}
 async function vistaIntervenciones(abrirId) {
-  $('#vista').innerHTML = `<div class="grid">
-    <div class="card"><h2>Intervenciones</h2><div id="lista"></div></div>
-    <div class="card" id="ficha2"><h2>Ficha</h2><p class="small">Elegí una intervención.</p></div></div>`;
+  if (!$('#lista')) {
+    $('#vista').innerHTML = `<div class="grid2 trab">
+      <section class="card" aria-labelledby="hInt"><h2 id="hInt">${rolEn('responsable') ? 'Mis intervenciones' : 'Intervenciones'}</h2><div id="lista"></div></section>
+      <aside id="detalle" class="detalle card" aria-live="polite"></aside></div>`;
+    detalleVacio('Elegí una intervención de la lista.');
+  }
+  S.refrescar = () => cargarFicha(S.ficha ? S.ficha.id : null, true);
   const lista = await api('GET', '/intervenciones');
-  $('#lista').innerHTML = lista.length ? `<table><tr><th>Título</th><th>Tipo</th><th>Estado</th><th>Plazo</th></tr>
-    ${lista.map(i => `<tr style="cursor:pointer" data-id="${i.id}"><td>${esc(i.titulo)}</td><td>${esc(S.config.tipos_intervencion[i.tipo]?.etiqueta || i.tipo)}</td>
-    <td>${ESTADO_TXT[i.estado]}${i.atrasada ? ' <span class="b-bad">· atrasada</span>' : ''}</td><td>${dia(i.fecha_planificada_fin)}</td></tr>`).join('')}</table>`
+  $('#lista').innerHTML = lista.length ? lista.map(i => `<button type="button" class="item" data-id="${i.id}" style="width:100%;margin:6px 0">
+      <span><b>${esc(i.titulo)}</b></span>
+      <span class="meta">${esc(S.config.tipos_intervencion[i.tipo]?.etiqueta || i.tipo)} · ${estadoBadge(i.estado)}${i.atrasada ? ' <span class="b-bad"><b>Atrasada</b></span>' : ''} · plazo ${dia(i.fecha_planificada_fin)}</span></button>`).join('')
     : '<p class="small">Sin intervenciones.</p>';
-  $('#lista').onclick = e => { const tr = e.target.closest('tr[data-id]'); if (tr) cargarFicha(+tr.dataset.id); };
+  $('#lista').onclick = e => { const b = e.target.closest('button[data-id]'); if (b) cargarFicha(+b.dataset.id); };
   if (abrirId) cargarFicha(abrirId);
 }
 
-async function cargarFicha(id) {
+function barras(a) {
+  return `<div class="small">Declarado: <b>${a.pct_declarado} %</b></div><div class="barra decl" aria-hidden="true"><i style="width:${a.pct_declarado}%"></i></div>
+    <div class="small">Validado: <b>${a.pct_validado} %</b>${a.diferencia_declarado_validado === null ? ' <span class="b-warn">(todavía sin validar)</span>' : a.diferencia_declarado_validado ? ` · diferencia ${a.diferencia_declarado_validado} puntos` : ''}</div>
+    <div class="barra val" aria-hidden="true"><i style="width:${a.pct_validado}%"></i></div>`;
+}
+function tarjetaEvidencia(e, yo, rol) {
+  const revisable = e.revision_estado === 'pendiente' && (rol === 'inspector' || rol === 'autoridad') && e.subida_por !== yo.id;
+  const rev = { pendiente: 'Pendiente de revisión', validada: 'Validada', observada: 'Observada' }[e.revision_estado] || e.revision_estado;
+  return `<div class="ev">${fotoHtml(e.url, 'Foto de ' + (TIPO_EV[e.tipo] || e.tipo).toLowerCase())}
+    <div class="info"><div><b>${esc(TIPO_EV[e.tipo] || e.tipo)}</b> · <span class="${e.revision_estado === 'validada' ? 'b-ok' : e.revision_estado === 'observada' ? 'b-bad' : 'b-warn'}"><b>${rev}</b></span></div>
+      <div class="small">Recibida ${fmt(e.recibida_at)} · captura ${e.capturada_at ? fmt(e.capturada_at) : 'no declarada'} · lugar con precisión ±${e.precision_m ?? '?'} m</div>
+      ${e.observacion ? `<div class="small">Observación: ${esc(e.observacion)}</div>` : ''}
+      ${e.banderas.length ? e.banderas.map(f => `<div class="flag"><span aria-hidden="true">⚠️</span><span>${esc(flagTxt(f))}</span></div>`).join('') : '<div class="small b-ok">✓ Sin avisos de consistencia</div>'}
+      ${revisable ? `<div class="row"><button type="button" data-revfoto="${e.id}">Revisar foto</button></div>` : ''}</div></div>`;
+}
+
+async function cargarFicha(id, silencioso) {
+  if (!id) return;
   const d = await api('GET', '/intervenciones/' + id);
-  const yo = S.usuario;
-  const esResp = yo && yo.id === d.responsable_id;
-  const rol = yo ? yo.rol : null;
+  S.ficha = d;
+  const yo = S.usuario, esResp = yo.id === d.responsable_id, rol = yo.rol;
   const acciones = [];
   if (d.estado === 'planificada' && (rol === 'autoridad' || esResp)) acciones.push(['iniciar', 'Iniciar ejecución']);
-  if (d.estado === 'en_ejecucion' && esResp) acciones.push(['declarar_finalizacion', 'Declarar finalización']);
-  if (d.estado === 'finalizada_declarada' && (rol === 'inspector' || rol === 'autoridad')) {
-    acciones.push(['observar_cierre', 'Observar cierre']); acciones.push(['validar_cierre', 'Validar cierre']);
-  }
+  if (d.estado === 'en_ejecucion' && esResp) acciones.push(['declarar_finalizacion', 'Declarar que terminé']);
+  if (d.estado === 'finalizada_declarada' && (rol === 'inspector' || rol === 'autoridad')) { acciones.push(['observar_cierre', 'Observar cierre']); acciones.push(['validar_cierre', 'Validar cierre']); }
   if (d.estado === 'validada' && rol === 'autoridad') acciones.push(['cerrar', 'Cerrar intervención']);
 
   const actHtml = d.actividades.map(a => {
-    const pend = a.avances.filter(x => x.estado === 'pendiente');
+    const pend = a.avances.filter(x => x.estado === 'pendiente' && x.declarado_por !== yo.id);
     const declarar = d.estado === 'en_ejecucion' && esResp
-      ? `<div class="row"><input type="number" min="0" max="100" step="5" value="${a.pct_declarado}" style="width:90px" data-pct="${a.id}"><span class="small">% declarado</span>
-         <input class="grow" placeholder="nota" data-nota="${a.id}"><button class="sec" data-decl="${a.id}">Declarar</button></div>` : '';
+      ? `<div class="row"><label class="sr" for="p${a.id}">Porcentaje declarado de ${esc(a.nombre)}</label><input id="p${a.id}" type="number" min="0" max="100" step="5" value="${a.pct_declarado}" style="width:100px" data-pct="${a.id}"><span class="small">% declarado</span>
+         <input class="grow" aria-label="Nota sobre ${esc(a.nombre)}" placeholder="Nota (opcional)" data-nota="${a.id}"><button type="button" class="sec" data-decl="${a.id}">Declarar</button></div>` : '';
     const validar = pend.length && (rol === 'inspector' || rol === 'autoridad')
-      ? pend.filter(x => x.declarado_por !== yo.id).map(x => `<div class="row small">Pendiente: ${x.pct}% (${fmt(x.declarado_at)})
-         <button class="sec" data-validar="${x.id}" data-pct="${x.pct}">Validar</button>
-         <button class="sec" data-observar="${x.id}">Observar</button></div>`).join('') : '';
-    return `<tr><td>${esc(a.nombre)}</td><td>${a.pct_declarado}%</td><td>${a.pct_validado}%</td>
-      <td>${a.diferencia_declarado_validado === null ? '<span class="small">sin validar</span>' : a.diferencia_declarado_validado + ' pp'}</td></tr>
-      ${declarar || validar ? `<tr><td colspan="4">${declarar}${validar}</td></tr>` : ''}`;
+      ? pend.map(x => `<div class="row small">Avance pendiente: ${x.pct} % (${fmt(x.declarado_at)})
+         <button type="button" data-revav="${x.id}" data-act="${a.id}">Revisar avance</button></div>`).join('') : '';
+    return `<div class="act"><b>${esc(a.nombre)}</b>${barras(a)}${declarar}${validar}</div>`;
   }).join('');
 
-  const evHtml = d.evidencias.map(e => {
-    const revisar = e.revision_estado === 'pendiente' && (rol === 'inspector' || rol === 'autoridad') && e.subida_por !== yo.id
-      ? `<button class="sec" data-rev="${e.id}" data-acc="validada">Validar foto</button> <button class="sec" data-rev="${e.id}" data-acc="observada">Observar</button>` : '';
-    return `<div class="card" style="margin:6px 0;padding:8px">
-      <div class="fotos"><img alt="evidencia" data-foto="${e.url}"></div>
-      <div class="small">#${e.id} · ${esc(e.tipo)} · recibida ${fmt(e.recibida_at)} · captura ${e.capturada_at ? fmt(e.capturada_at) : 'no declarada'}
-        · ubicación ${e.lat ? e.lat.toFixed(5) + ', ' + e.lon.toFixed(5) : '—'} ±${e.precision_m ?? '?'} m</div>
-      <div>${e.banderas.map(f => `<span class="badge b-warn">${esc(flagTxt(f))}</span>`).join('')}</div>
-      <div><span class="badge">${esc(e.revision_estado)}</span> ${e.observacion ? '<span class="small">' + esc(e.observacion) + '</span>' : ''}</div>
-      ${revisar}</div>`;
-  }).join('') || '<p class="small">Sin evidencias.</p>';
+  const grupos = d.actividades.map(a => ({ t: 'Actividad: ' + a.nombre, evs: d.evidencias.filter(e => e.actividad_id === a.id && e.tipo !== 'cierre') }));
+  grupos.push({ t: 'Cierre', evs: d.evidencias.filter(e => e.tipo === 'cierre') });
+  grupos.push({ t: 'Otras fotos', evs: d.evidencias.filter(e => e.tipo !== 'cierre' && !d.actividades.some(a => a.id === e.actividad_id)) });
+  const evHtml = grupos.filter(g => g.evs.length).map(g => `<div class="grupo">${esc(g.t)}</div>${g.evs.map(e => tarjetaEvidencia(e, yo, rol)).join('')}`).join('') || '<p class="small">Sin fotos todavía.</p>';
 
-  const subir = ['en_ejecucion', 'finalizada_declarada'].includes(d.estado) && yo && (esResp || rol === 'inspector' || rol === 'autoridad')
-    ? `<h2 style="margin-top:12px">Cargar evidencia</h2>
-      <div class="row"><select id="evTipo"><option value="avance">Avance</option><option value="cierre">Cierre</option><option value="inspeccion">Inspección</option></select>
-      <select id="evAct"><option value="">Sin actividad</option>${d.actividades.map(a => `<option value="${a.id}">${esc(a.nombre)}</option>`).join('')}</select></div>
-      <input type="file" id="evFoto" accept="image/*" capture="environment">
-      <div class="row"><button class="sec" id="evGeo">Usar mi ubicación</button><span class="small" id="evGeoTxt">Sin ubicación del dispositivo</span></div>
-      <div class="row"><button id="evSubir">Subir evidencia</button></div><div id="evMsg"></div>` : '';
+  const subir = ['en_ejecucion', 'finalizada_declarada'].includes(d.estado) && (esResp || rol === 'inspector' || rol === 'autoridad')
+    ? `<h3>Cargar una foto</h3>
+      <div class="row"><label class="sr" for="evTipo">Tipo de foto</label><select id="evTipo"><option value="avance">Avance</option><option value="cierre">Cierre</option><option value="inspeccion">Inspección</option></select>
+      <label class="sr" for="evAct">Actividad</label><select id="evAct"><option value="">Sin actividad</option>${d.actividades.map(a => `<option value="${a.id}">${esc(a.nombre)}</option>`).join('')}</select></div>
+      <div id="fotoEv"></div>
+      <div class="row"><button type="button" class="sec" id="evGeo">📍 Usar mi ubicación</button><span class="small" id="evGeoTxt">Si no la usás, se toma el lugar de la intervención.</span></div>
+      <div class="row"><button type="button" class="big" id="evSubir">Subir foto</button></div><div id="evMsg"></div>` : '';
 
-  $('#ficha2').innerHTML = `<h2>${esc(d.titulo)}</h2>
-    <p><span class="badge">${esc(S.config.tipos_intervencion[d.tipo]?.etiqueta || d.tipo)}</span>
-      <span class="badge">${ESTADO_TXT[d.estado]}</span>${d.atrasada ? '<span class="badge b-bad">Atrasada</span>' : ''}</p>
-    <p class="small">${d.expediente_externo ? 'Expediente ' + esc(d.sistema_externo || 'externo') + ': ' + esc(d.expediente_externo) + ' · ' : ''}Responsable: ${esc(d.responsable.nombre)} · plazo ${dia(d.fecha_planificada_fin)} · inicio ${fmt(d.fecha_inicio_real)}
-      ${d.fecha_fin_declarada ? ' · fin declarado ' + fmt(d.fecha_fin_declarada) : ''} ${d.fecha_cierre ? ' · cierre ' + fmt(d.fecha_cierre) : ''}</p>
-    <p class="small">Incidencias: ${d.incidencias.map(i => esc(i.codigo) + ' (' + ESTADO_TXT[i.estado] + ')').join(', ') || '—'}</p>
-    <div class="row">${acciones.map(([k, l]) => `<button data-acc="${k}">${esc(l)}</button>`).join('')}</div>
+  const panel = abrirDetalle(`<h1 class="t">${esc(d.titulo)}</h1>
+    <p><span class="badge">${esc(S.config.tipos_intervencion[d.tipo]?.etiqueta || d.tipo)}</span>${estadoBadge(d.estado)}${d.atrasada ? '<span class="badge b-bad"><b>Atrasada</b></span>' : ''}</p>
+    <p class="small">${d.expediente_externo ? 'Expediente ' + esc(d.sistema_externo || 'externo') + ': ' + esc(d.expediente_externo) + ' · ' : ''}Responsable: ${esc(d.responsable.nombre)} · plazo ${dia(d.fecha_planificada_fin)}${d.fecha_inicio_real ? ' · inicio ' + fmt(d.fecha_inicio_real) : ''}${d.fecha_fin_declarada ? ' · fin declarado ' + fmt(d.fecha_fin_declarada) : ''}${d.fecha_cierre ? ' · cierre ' + fmt(d.fecha_cierre) : ''}</p>
+    <p class="small">Reportes que resuelve: ${d.incidencias.map(i => esc(i.codigo) + ' (' + esc(ESTADO_TXT[i.estado]) + ')').join(', ') || '—'}</p>
+    <div class="row">${acciones.map(([k, l]) => `<button type="button" class="${k === 'observar_cierre' ? 'sec' : ''}" data-acc="${k}">${esc(l)}</button>`).join('')}</div>
     <div id="accMsg"></div>
-    <h2 style="margin-top:12px">Actividades: declarado vs validado</h2>
-    ${d.actividades.length ? `<table><tr><th>Actividad</th><th>Declarado</th><th>Validado</th><th>Diferencia</th></tr>${actHtml}</table>`
-      : '<p class="small">Esta intervención no tiene actividades desagregadas.</p>'}
-    <h2 style="margin-top:12px">Evidencias</h2>${evHtml}${subir}
-    <h2 style="margin-top:12px">Historial</h2><div class="hist">${d.historial.map(h => `<div>${fmt(h.ocurrido_at)} · ${esc(h.accion)}${h.detalle && h.detalle !== '{}' ? ' · ' + esc(h.detalle) : ''}</div>`).join('')}</div>`;
+    <h3>Actividades: declarado y validado</h3>
+    ${d.actividades.length ? actHtml : '<p class="small">Esta intervención no tiene actividades desagregadas.</p>'}
+    <h3>Fotos</h3>${evHtml}${subir}
+    <h3>Historia</h3><ul class="eventos">${eventosHistorial(d)}</ul>`);
+  if (!panel) return;
 
-  const acc = $('#ficha2');
   const ejecutar = async (fn, okTxt) => {
-    try { await fn(); mensaje($('#accMsg'), okTxt, true); await cargarFicha(id); }
+    try { await fn(); toast(okTxt); await cargarFicha(id, true); }
     catch (err) { mensaje($('#accMsg'), err.message, false); }
   };
-  acc.querySelectorAll('.row > button[data-acc]').forEach(b => b.onclick = () => {
-    const k = b.dataset.acc;
-    if (k === 'observar_cierre') { const o = prompt('Motivo de la observación:'); if (!o) return;
-      return ejecutar(() => api('POST', `/intervenciones/${id}/transicion`, { accion: k, observacion: o }), 'Cierre observado.'); }
-    ejecutar(() => api('POST', `/intervenciones/${id}/transicion`, { accion: k }), 'Transición registrada.');
-  });
-  acc.querySelectorAll('button[data-decl]').forEach(b => b.onclick = () => {
-    const aid = +b.dataset.decl;
-    ejecutar(() => api('POST', `/intervenciones/${id}/avances`, { actividad_id: aid,
-      pct: +acc.querySelector(`[data-pct="${aid}"]`).value, nota: acc.querySelector(`[data-nota="${aid}"]`).value }), 'Avance declarado (pendiente de validación).');
-  });
-  acc.querySelectorAll('button[data-validar]').forEach(b => b.onclick = () =>
-    ejecutar(() => api('POST', `/avances/${b.dataset.validar}/revision`, { accion: 'validar', pct_validado: +b.dataset.pct }), 'Avance validado.'));
-  acc.querySelectorAll('button[data-observar]').forEach(b => b.onclick = () => {
-    const o = prompt('Motivo de la observación del avance:'); if (!o) return;
-    ejecutar(() => api('POST', `/avances/${b.dataset.observar}/revision`, { accion: 'observar', observacion: o }), 'Avance observado.');
-  });
-  acc.querySelectorAll('button[data-rev]').forEach(b => b.onclick = () => {
-    const accion = b.dataset.acc; let o = null;
-    if (accion === 'observada') { o = prompt('Motivo de la observación de la foto:'); if (!o) return; }
-    ejecutar(() => api('POST', `/evidencias/${b.dataset.rev}/revision`, { accion, observacion: o }), 'Evidencia revisada.');
-  });
-  const geoBtn = $('#evGeo');
-  if (geoBtn) {
+  panel.onclick = async e => {
+    if (e.target.closest('[data-volver]')) return cerrarDetalle();
+    const th = e.target.closest('button.thumb'); if (th) return abrirFoto(th.querySelector('img').src);
+    const acc = e.target.closest('[data-acc]');
+    if (acc) {
+      const k = acc.dataset.acc;
+      if (k === 'observar_cierre') {
+        const o = await pedirTexto({ titulo: 'Observar el cierre', etiqueta: 'Contale al responsable qué falta o qué no coincide', boton: 'Observar cierre' });
+        if (!o) return;
+        return ejecutar(() => api('POST', `/intervenciones/${id}/transicion`, { accion: k, observacion: o }), 'Cierre observado');
+      }
+      return ejecutar(() => api('POST', `/intervenciones/${id}/transicion`, { accion: k }), 'Listo');
+    }
+    const decl = e.target.closest('[data-decl]');
+    if (decl) {
+      const aid = +decl.dataset.decl;
+      return ejecutar(() => api('POST', `/intervenciones/${id}/avances`, { actividad_id: aid, pct: +panel.querySelector(`[data-pct="${aid}"]`).value,
+        nota: panel.querySelector(`[data-nota="${aid}"]`).value }), 'Avance declarado: queda pendiente de validación');
+    }
+    const rv = e.target.closest('[data-revav]');
+    if (rv) {
+      const act = d.actividades.find(a => a.id === +rv.dataset.act), av = act.avances.find(x => x.id === +rv.dataset.revav);
+      return revisarAvanceModal({ avance_id: av.id, intervencion_id: id, actividad_id: act.id, actividad: act.nombre, titulo: d.titulo, pct: av.pct, pct_validado: act.pct_validado, nota: av.nota });
+    }
+    const rf = e.target.closest('[data-revfoto]');
+    if (rf) return revisarFotoModal(d.evidencias.find(x => x.id === +rf.dataset.revfoto));
+  };
+  if ($('#fotoEv')) {
+    const foto = fotoPicker($('#fotoEv'));
     let pos = null;
-    geoBtn.onclick = async () => {
-      try { pos = await geo(); $('#evGeoTxt').textContent = `Ubicación ±${Math.round(pos.precision_m)} m`; }
+    $('#evGeo').onclick = async () => {
+      try { pos = await pedirUbicacion(); $('#evGeoTxt').textContent = `Ubicación tomada (±${Math.round(pos.precision_m)} m)`; }
       catch (err) { mensaje($('#evMsg'), err.message, false); }
     };
     $('#evSubir').onclick = async () => {
+      const b = $('#evSubir');
       try {
-        if (!pos) pos = { lat: d.lat, lon: d.lon, precision_m: null };
-        const foto = await leerFoto($('#evFoto').files[0]);
-        if (!foto) throw new Error('seleccioná una foto');
-        const body = { tipo: $('#evTipo').value, actividad_id: $('#evAct').value ? +$('#evAct').value : null,
-          foto, lat: pos.lat, lon: pos.lon, precision_m: pos.precision_m,
-          capturada_at: new Date().toISOString().replace(/\.\d+Z$/, 'Z') };
-        await api('POST', `/intervenciones/${id}/evidencias`, body);
-        mensaje($('#evMsg'), 'Evidencia recibida. Queda pendiente de revisión.', true);
-        setTimeout(() => cargarFicha(id), 500);
-      } catch (err) { mensaje($('#evMsg'), err.message, false); }
+        if (!foto.archivo()) throw new Error('Elegí o sacá una foto primero.');
+        b.disabled = true; b.textContent = 'Subiendo…';
+        const p = pos || { lat: d.lat, lon: d.lon, precision_m: null };
+        await api('POST', `/intervenciones/${id}/evidencias`, { tipo: $('#evTipo').value, actividad_id: $('#evAct').value ? +$('#evAct').value : null,
+          foto: await leerFoto(foto.archivo()), lat: p.lat, lon: p.lon, precision_m: p.precision_m, capturada_at: new Date().toISOString().replace(/\.\d+Z$/, 'Z') });
+        toast('Foto recibida: queda pendiente de revisión');
+        await cargarFicha(id, true);
+      } catch (err) { mensaje($('#evMsg'), err.message, false); b.disabled = false; b.textContent = 'Subir foto'; }
     };
   }
-  cargarFotos(acc);
 }
 
 // ---------- arranque ----------
-$('#selEnte').onchange = e => { S.ente = e.target.value; S.config = S.entes.find(x => x.codigo === S.ente).config; render(); };
+$('#selEnte').onchange = e => { S.ente = e.target.value; S.config = S.entes.find(x => x.codigo === S.ente).config; S.rep = nuevoBorrador(); render(); };
 $('#formLogin').onsubmit = iniciarSesion;
-cargarSesion().catch(err => { $('#vista').innerHTML = `<div class="msg err">No se pudo cargar el prototipo: ${esc(err.message)}</div>`; });
+$('#lCancelar').onclick = () => $('#dlgLogin').close();
+$('#cerrarFoto').onclick = () => $('#dlgFoto').close();
+$('#dlgFoto').onclick = e => { if (e.target === $('#dlgFoto')) $('#dlgFoto').close(); };
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('#detalle') && $('#detalle').classList.contains('abierto') && !document.querySelector('dialog[open]')) cerrarDetalle(); });
+window.addEventListener('hashchange', () => { if (leerHash()) render(); });
+leerHash();
+cargarSesion(true).catch(err => { $('#vista').innerHTML = `<div class="msg err">No se pudo cargar el prototipo: ${esc(err.message)}</div>`; });
 </script>
 </body>
 </html>

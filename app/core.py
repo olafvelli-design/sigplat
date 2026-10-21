@@ -345,7 +345,8 @@ def seguimiento_publico(c, ctx, codigo):
     if r is None:
         raise ApiError(404, f'no existe un reporte con el código {codigo}')
     d = {'codigo': r['codigo'], 'categoria': r['categoria'], 'ente': r['ente_nombre'],
-         'fecha_reporte': r['fecha_reporte'], 'estado': ESTADO_PUBLICO[r['estado']]}
+         'fecha_reporte': r['fecha_reporte'], 'estado': ESTADO_PUBLICO[r['estado']],
+         'estado_codigo': r['estado'], 'fecha_resuelta': r['fecha_resuelta']}
     if r['intervencion_id']:
         it = c.execute('SELECT estado, fecha_planificada_fin, fecha_cierre FROM intervenciones WHERE id=?',
                        (r['intervencion_id'],)).fetchone()
@@ -427,6 +428,54 @@ def ficha_incidencia(c, ctx, inc_id):
     d['historial'] = [fila(r) for r in c.execute(
         "SELECT * FROM historial WHERE entidad='incidencia' AND entidad_id=? ORDER BY id", (inc_id,))]
     return 200, d
+
+
+def subir_evidencia_incidencia(c, ctx, inc_id):
+    """Foto tomada por el personal de inspección sobre una incidencia (antes o durante la inspección)."""
+    u, ente = usuario_actual(c, ctx)
+    exigir(u, 'inspeccionar')
+    inc = c.execute('SELECT * FROM incidencias WHERE id=? AND ente_id=?', (inc_id, ente['id'])).fetchone()
+    if inc is None:
+        raise ApiError(404, 'incidencia inexistente')
+    if inc['estado'] not in ('recibida', 'confirmada'):
+        raise ApiError(409, 'sólo se agregan fotos de inspección a incidencias recibidas o confirmadas')
+    datos = dict(ctx['body'], tipo='inspeccion')
+    eid = guardar_evidencia(c, ente, datos, inc['lat'], inc['lon'], u['id'], intervencion_id=None, incidencia_id=inc_id)
+    return 201, evidencia_dict(c.execute('SELECT * FROM evidencias WHERE id=?', (eid,)).fetchone())
+
+
+def mi_trabajo(c, ctx):
+    """Lo pendiente del personal de inspección: qué visitar y qué revisar. Nada que haya cargado la misma persona
+    aparece para revisar (separación de funciones)."""
+    u, ente = usuario_actual(c, ctx)
+    exigir(u, 'validar_avance')
+    eid, t = ente['id'], now()
+    para_inspeccionar = [
+        dict(fila(r), dias=round((t - parse_iso(r['fecha_reporte'])).total_seconds() / 86400, 1))
+        for r in c.execute("""SELECT id,codigo,categoria,descripcion,lat,lon,fecha_reporte,reportes_count FROM incidencias
+                              WHERE ente_id=? AND estado='recibida' ORDER BY fecha_reporte, id""", (eid,))]
+    avances = [fila(r) for r in c.execute(
+        """SELECT av.id AS avance_id, av.pct, av.nota, av.declarado_at, a.id AS actividad_id, a.nombre AS actividad,
+                  a.pct_validado, i.id AS intervencion_id, i.titulo
+           FROM avances av JOIN actividades a ON a.id=av.actividad_id JOIN intervenciones i ON i.id=a.intervencion_id
+           WHERE i.ente_id=? AND av.estado='pendiente' AND av.declarado_por != ? ORDER BY av.declarado_at""", (eid, u['id']))]
+    evidencias = []
+    for r in c.execute(
+            """SELECT e.id, e.tipo, e.recibida_at, e.banderas, e.ruta, e.actividad_id, i.id AS intervencion_id, i.titulo
+               FROM evidencias e JOIN intervenciones i ON i.id=e.intervencion_id
+               WHERE e.ente_id=? AND e.revision_estado='pendiente' AND e.subida_por != ? ORDER BY e.recibida_at""",
+            (eid, u['id'])):
+        d = fila(r)
+        d['banderas'] = json.loads(d['banderas'])
+        d['url'] = f'/api/fotos/{d.pop("ruta")}'
+        evidencias.append(d)
+    cierres = [fila(r) for r in c.execute(
+        "SELECT id, titulo, fecha_fin_declarada FROM intervenciones WHERE ente_id=? AND estado='finalizada_declarada' ORDER BY id",
+        (eid,))]
+    return 200, {'para_inspeccionar': para_inspeccionar, 'avances_pendientes': avances,
+                 'evidencias_pendientes': evidencias, 'cierres_pendientes': cierres,
+                 'contadores': {'para_inspeccionar': len(para_inspeccionar), 'avances': len(avances),
+                                'evidencias': len(evidencias), 'cierres': len(cierres)}}
 
 
 # ---------- intervenciones ----------
@@ -658,8 +707,14 @@ def ficha_intervencion_datos(c, ente_id, iid):
     d['actividades'] = actividades
     d['evidencias'] = [evidencia_dict(r) for r in c.execute(
         'SELECT * FROM evidencias WHERE intervencion_id=? ORDER BY id', (iid,))]
+    # Incluye los hechos de sus avances y evidencias, para poder contar la historia completa en lenguaje claro.
     d['historial'] = [fila(r) for r in c.execute(
-        "SELECT * FROM historial WHERE entidad='intervencion' AND entidad_id=? ORDER BY id", (iid,))]
+        """SELECT * FROM historial WHERE ente_id=? AND (
+               (entidad='intervencion' AND entidad_id=?)
+            OR (entidad='avance' AND entidad_id IN (SELECT av.id FROM avances av
+                                                    JOIN actividades a ON a.id=av.actividad_id WHERE a.intervencion_id=?))
+            OR (entidad='evidencia' AND entidad_id IN (SELECT id FROM evidencias WHERE intervencion_id=?)))
+           ORDER BY id""", (ente_id, iid, iid, iid))]
     return d
 
 
@@ -875,6 +930,8 @@ RUTAS = [
     ('GET', r'^/incidencias$', listar_incidencias),
     ('GET', r'^/incidencias/(\d+)$', ficha_incidencia),
     ('POST', r'^/incidencias/(\d+)/inspeccion$', inspeccionar),
+    ('POST', r'^/incidencias/(\d+)/evidencias$', subir_evidencia_incidencia),
+    ('GET', r'^/mi-trabajo$', mi_trabajo),
     ('GET', r'^/intervenciones$', listar_intervenciones),
     ('POST', r'^/intervenciones$', crear_intervencion),
     ('GET', r'^/intervenciones/(\d+)$', ficha_intervencion),
