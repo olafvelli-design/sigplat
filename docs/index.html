@@ -6,12 +6,13 @@
 <title>SIGPLAT · demo</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
-  :root { --fg:#1f2933; --muted:#55606e; --line:#cfd6df; --bg:#f2f3f5; --card:#fff; --acc:#2c4a66; --on-acc:#fff; --head:#1d2f42; --thead:#e9ecf0;
-          --warn:#8a5a00; --ok:#1e6b38; --on-ok:#fff; --bad:#a51d1d; --foco:#b45309; --suave:rgba(44,74,102,.08); }
-  :root[data-theme="dark"] { --fg:#e6e9ee; --muted:#9aa4b2; --line:#2e3642; --bg:#12171e; --card:#1a2029; --acc:#9db4cc; --on-acc:#0b1a2a; --head:#141e2a; --thead:#232b36;
-          --warn:#fbbf24; --ok:#4ade80; --on-ok:#06260f; --bad:#f87171; --foco:#fbbf24; --suave:rgba(157,180,204,.12); }
-  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --fg:#e6e9ee; --muted:#9aa4b2; --line:#2e3642; --bg:#12171e; --card:#1a2029; --acc:#9db4cc; --on-acc:#0b1a2a; --head:#141e2a; --thead:#232b36;
-          --warn:#fbbf24; --ok:#4ade80; --on-ok:#06260f; --bad:#f87171; --foco:#fbbf24; --suave:rgba(157,180,204,.12); } }
+  /* Claro y azul, como Ciudadano Digital y SIGO: fondo blanco, encabezado azul y paneles con barra azul marino */
+  :root { --fg:#1f2933; --muted:#55606e; --line:#d3dde8; --bg:#f6f8fb; --card:#fff; --acc:#1769aa; --on-acc:#fff; --head:#1e76bb; --navy:#0f3a6b;
+          --th:#2b7bb9; --thead:#e3eef8; --warn:#8a5a00; --ok:#1e6b38; --on-ok:#fff; --bad:#a51d1d; --foco:#b45309; --suave:rgba(23,105,170,.08); }
+  :root[data-theme="dark"] { --fg:#e6e9ee; --muted:#9aa4b2; --line:#2e3642; --bg:#12171e; --card:#1a2029; --acc:#9db4cc; --on-acc:#0b1a2a; --head:#16314f; --navy:#1d3c66;
+          --th:#243c58; --thead:#232b36; --warn:#fbbf24; --ok:#4ade80; --on-ok:#06260f; --bad:#f87171; --foco:#fbbf24; --suave:rgba(157,180,204,.12); }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --fg:#e6e9ee; --muted:#9aa4b2; --line:#2e3642; --bg:#12171e; --card:#1a2029; --acc:#9db4cc; --on-acc:#0b1a2a; --head:#16314f; --navy:#1d3c66;
+          --th:#243c58; --thead:#232b36; --warn:#fbbf24; --ok:#4ade80; --on-ok:#06260f; --bad:#f87171; --foco:#fbbf24; --suave:rgba(157,180,204,.12); } }
   * { box-sizing: border-box; }
   body { margin:0; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--fg); }
   body.sin-scroll { overflow: hidden; }
@@ -21,13 +22,13 @@
   :focus-visible { outline: 3px solid var(--foco); outline-offset: 2px; }
   [hidden] { display:none !important; }
 
-  header { background: var(--head); color:#fff; padding: 8px 16px; display:flex; flex-wrap:wrap; gap:12px; align-items:center; border-bottom: 3px solid #b8975a; }
-  header h1 { font-size: 17px; margin: 0 auto 0 0; font-weight: 700; letter-spacing: .2px; }
-  header label { display:flex; gap:6px; align-items:center; color:#cdd9e6; font-size:13px; margin:0; }
-  header select { max-width: 240px; border-color:#3d5a80; }
-  #sesion { display:flex; gap:10px; align-items:center; font-size:14px; color:#e6edf5; }
-  #sesion .rol { color:#cdd9e6; font-size:12px; border:1px solid #3d5a80; border-radius:3px; padding:1px 6px; margin-left:4px; }
-  header button.sec { color:#fff; border-color:#6b86a6; }
+  header { background: var(--head); color:#fff; padding: 8px 16px; display:flex; flex-wrap:wrap; gap:12px; align-items:center; border-bottom: 3px solid var(--navy); }
+  header h1 { font-size: 18px; margin: 0 auto 0 0; font-weight: 800; letter-spacing: .6px; }
+  header label { display:flex; gap:6px; align-items:center; color:#e8f2fb; font-size:13px; margin:0; }
+  header select { max-width: 240px; border-color:#8dbfe6; }
+  #sesion { display:flex; gap:10px; align-items:center; font-size:14px; color:#fff; }
+  #sesion .rol { color:#fff; font-size:12px; border:1px solid rgba(255,255,255,.6); border-radius:3px; padding:1px 6px; margin-left:4px; }
+  header button.sec { color:#fff; border-color:rgba(255,255,255,.7); }
 
   select, input, textarea, button { font: inherit; color: var(--fg); background: var(--card); border:1px solid var(--line); border-radius:4px; padding:8px 10px; min-height:44px; }
   input[type=radio], input[type=checkbox] { min-height:auto; }
@@ -48,10 +49,10 @@
 
   .grid2 { display:grid; grid-template-columns: 1fr 1fr; gap:14px; align-items:start; }
   .grid2.trab { grid-template-columns: minmax(0,1.1fr) minmax(0,1fr); }
-  .card { background: var(--card); border:1px solid var(--line); border-top: 3px solid var(--acc); border-radius: 3px; padding: 14px; margin-bottom: 14px; }
+  .card { background: var(--card); border:1px solid var(--line); border-radius: 4px; padding: 14px; margin-bottom: 14px; }
   .grid2 > .card { margin-bottom:0; }
   .card.narrow { max-width: 680px; }
-  .card h2 { font-size: 15px; margin: 0 0 10px; color: var(--acc); text-transform: uppercase; letter-spacing: .3px; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+  .card > h2 { font-size: 15px; margin: -14px -14px 12px; padding: 9px 14px; background: var(--navy); color:#fff; letter-spacing: .2px; border-radius: 3px 3px 0 0; }
   .card h3 { font-size: 15px; margin: 16px 0 6px; }
   fieldset { border:0; padding:0; margin:0 0 20px; min-width:0; }
   legend { font-weight:700; padding:0; margin-bottom:8px; font-size:16px; }
@@ -65,7 +66,7 @@
   .row .grow { flex: 1 1 200px; }
   table { width:100%; border-collapse: collapse; font-size: 14px; }
   th, td { text-align:left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  th { background: var(--thead); font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: .3px; }
+  th { background: var(--th); color:#fff; font-weight: 700; font-size: 12px; letter-spacing: .2px; }
 
   .msg { padding:10px 12px; border-radius:6px; margin:10px 0; font-size:15px; }
   .msg.ok { background: rgba(30,107,56,.12); color: var(--ok); }
@@ -193,7 +194,36 @@
   .kpis-obra .card { margin:0; border-top-width:1px; border-left:4px solid var(--acc); padding:10px 12px; }
   .kpis-obra .v { font-size:20px; font-weight:700; color: var(--acc); }
   .kpis-obra .l { font-size:13px; color: var(--muted); }
-  .grafico { width:100%; height:auto; display:block; }
+  .grafico { width:100%; height:auto; display:block; touch-action:pan-y; }
+  .graf-caja { position:relative; }
+  .tip { position:absolute; top:8px; background: var(--card); border:1px solid var(--line); border-radius:4px; padding:6px 10px; font-size:13px; box-shadow:0 2px 8px rgba(0,0,0,.18); pointer-events:none; z-index:3; white-space:nowrap; }
+  .leyenda-curvas { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0; }
+  .leyenda-curvas .chip { display:inline-flex; align-items:center; gap:6px; }
+  .leyenda-curvas .chip[aria-pressed=true] { background: var(--suave); color: var(--fg); border:2px solid var(--acc); }
+  .leyenda-curvas .chip[aria-pressed=false] { opacity:.6; text-decoration:line-through; }
+  .det-grid { display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1.3fr); gap:14px; align-items:start; margin:10px 0; }
+  .mapa-obra { height:230px; border:1px solid var(--line); border-radius:4px; }
+  .medidores { display:flex; flex-wrap:wrap; gap:10px; justify-content:space-around; }
+  .medidor { text-align:center; max-width:150px; }
+  .medidor .m-tit { font-weight:700; font-size:14px; }
+  table.ficha th { text-align:left; background: var(--thead); color: var(--fg); width:36%; font-weight:600; }
+  table.computo input.cant { width:7.5em; text-align:right; padding:4px 6px; }
+  table.computo tr.alerta td { background: var(--suave); }
+  table.computo tr.rubro td { background: var(--thead); }
+  table.computo tr.tot td { border-top:2px solid var(--navy); }
+  .stepper { list-style:none; display:flex; flex-wrap:wrap; gap:6px 22px; padding:0; margin:12px 0; }
+  .stepper li { display:flex; align-items:center; gap:8px; color: var(--muted); font-weight:600; }
+  .stepper .n { width:26px; height:26px; border-radius:50%; border:2px solid var(--line); display:inline-flex; align-items:center; justify-content:center; font-size:13px; }
+  .stepper li.act { color: var(--navy); } .stepper li.act .n { border-color: var(--acc); color: var(--acc); }
+  .stepper li.hecho { color: var(--ok); } .stepper li.hecho .n { background: var(--ok); border-color: var(--ok); color:#fff; }
+  .atajos { display:none; }
+  @media (min-width: 1180px) {
+    .atajos { display:flex; flex-direction:column; gap:4px; position:fixed; right:14px; top:150px; width:190px; background: var(--card); border:1px solid var(--line); border-top:3px solid var(--navy); border-radius:4px; padding:8px; z-index:20; box-shadow:0 2px 10px rgba(0,0,0,.12); }
+    .atajos .tit { font-size:12px; font-weight:700; text-transform:uppercase; color: var(--muted); }
+    .atajos button { text-align:left; background:transparent; color: var(--acc); border:0; padding:6px 8px; min-height:0; font-size:14px; font-weight:500; }
+    .atajos button.act { background: var(--suave); font-weight:700; }
+  }
+  @media (max-width: 720px) { .det-grid { grid-template-columns: 1fr; } }
   .tabla-scroll { overflow-x:auto; }
   .num { text-align:right; font-variant-numeric: tabular-nums; white-space:nowrap; }
   .tit-rubro { font-weight:700; background: var(--thead); padding:6px 10px; margin-top:12px; border-radius:3px; }
@@ -229,6 +259,7 @@
     nav { padding: 0 6px; overflow-x:auto; flex-wrap:nowrap; }
     nav button { white-space:nowrap; padding: 8px 12px; }
     .card { padding: 12px; }
+    .card > h2 { margin: -12px -12px 12px; }
     .detalle { display:none; }
     .detalle.abierto { display:block; position:fixed; inset:0; z-index:60; overflow:auto; margin:0; border-radius:0; padding:12px 14px 90px; background: var(--card); }
     .detalle.abierto .volver { display:inline-flex; align-items:center; }
@@ -1611,27 +1642,83 @@ function leerCSV(texto) {
   return filas;
 }
 
-// gráfico SVG de la curva: porcentaje acumulado del contrato, comprometido (ideal) contra certificado (real)
-function graficoCurva(cv, hoyMes) {
-  const P = cv.puntos, W = 640, H = 270, L = 40, R = 14, T = 16, B = 36;
-  if (!P.length) return '<p class="small">Todavía no hay curva.</p>';
-  const x = i => L + (P.length <= 1 ? 0 : i * (W - L - R) / (P.length - 1));
-  const y = v => T + (100 - v) * (H - T - B) / 100;
-  const linea = (pts, clave) => pts.map(p => `${x(P.indexOf(p)).toFixed(1)},${y(p[clave]).toFixed(1)}`).join(' ');
-  const reales = P.filter(p => p.real_acum_pct !== null);
-  const ultReal = reales[reales.length - 1];
-  const resumen = `Curva de avance acumulado. Comprometido al último mes: ${pctTxt(P[P.length - 1].ideal_acum_pct)}.` +
-    (ultReal ? ` Certificado hasta ${mesTxt(ultReal.mes)}: ${pctTxt(ultReal.real_acum_pct)}.` : ' Todavía no hay certificados.');
-  const hoyI = P.findIndex(p => p.mes === hoyMes);
-  return `<svg class="grafico" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(resumen)}">
-    ${[0, 25, 50, 75, 100].map(v => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-width="1"/><text x="${L - 6}" y="${y(v) + 4}" font-size="11" text-anchor="end" fill="var(--muted)">${v} %</text>`).join('')}
-    ${P.map((p, i) => `<text x="${x(i)}" y="${H - 14}" font-size="10" text-anchor="middle" fill="var(--muted)">${MESES[+p.mes.slice(5, 7) - 1]}</text>`).join('')}
-    ${hoyI >= 0 ? `<line x1="${x(hoyI)}" x2="${x(hoyI)}" y1="${T}" y2="${H - B}" stroke="var(--warn)" stroke-dasharray="3 3"/><text x="${x(hoyI)}" y="${T - 4}" font-size="10" text-anchor="middle" fill="var(--warn)">hoy</text>` : ''}
-    <polyline points="${linea(P, 'ideal_acum_pct')}" fill="none" stroke="var(--muted)" stroke-width="2" stroke-dasharray="6 4"/>
-    ${reales.length ? `<polyline points="${linea(reales, 'real_acum_pct')}" fill="none" stroke="var(--acc)" stroke-width="3"/>${reales.map(p => `<circle cx="${x(P.indexOf(p))}" cy="${y(p.real_acum_pct)}" r="4" fill="var(--acc)"/>`).join('')}` : ''}
-    <line x1="${L + 12}" x2="${L + 36}" y1="${T + 10}" y2="${T + 10}" stroke="var(--muted)" stroke-width="2" stroke-dasharray="6 4"/><text x="${L + 42}" y="${T + 14}" font-size="11" fill="var(--fg)">Comprometido</text>
-    <line x1="${L + 12}" x2="${L + 36}" y1="${T + 28}" y2="${T + 28}" stroke="var(--acc)" stroke-width="3"/><text x="${L + 42}" y="${T + 32}" font-size="11" fill="var(--fg)">Certificado</text>
-  </svg>`;
+// Gráfico de curvas de avance, como el de SIGO: áreas, una leyenda para tildar cada curva, tooltips y montos en $ o en %.
+const montoCompacto = c => {
+  const v = c / 100, a = Math.abs(v), f = (x, d) => x.toLocaleString('es-AR', { maximumFractionDigits: d });
+  return a >= 1e9 ? '$ ' + f(v / 1e9, 2) + ' mil M' : a >= 1e6 ? '$ ' + f(v / 1e6, 1) + ' M' : a >= 1e3 ? '$ ' + f(v / 1e3, 0) + ' mil' : '$ ' + f(v, 0);
+};
+const finDeMes = m => { const [a, n] = m.split('-').map(Number); return `${new Date(a, n, 0).getDate()}-${MESES[n - 1]}.-${String(a).slice(2)}`; };
+const colorCurva = s => ({ principal: '#7c93ad', MCI: '#d9882b', AP: '#2f9e62' }[s.tipo] || '#7c93ad');
+const COLOR_REAL = '#1769aa';
+const niceMax = v => { if (v <= 0) return 1; const p = Math.pow(10, Math.floor(Math.log10(v))), n = v / p; return ([1, 1.2, 1.6, 2, 2.4, 3, 4, 5, 6, 8, 10].find(x => n <= x + 1e-9) || 10) * p; };
+
+function pintarGrafico(cv, raiz) {
+  const G = S.obra.graf = S.obra.graf || { vis: {}, unidad: 'monto' };
+  const eje = cv.puntos.map(p => p.mes), n = eje.length;
+  if (!n) { raiz.innerHTML = '<p class="small">Todavía no hay curva.</p>'; return; }
+  const series = cv.curvas.map(s => ({ clave: s.nombre, nombre: s.nombre + (s.vigente ? ' (vigente)' : s.estado === 'pendiente' ? ' (pendiente)' : ''),
+    color: colorCurva(s), grosor: s.vigente ? 3 : 2, dash: s.estado === 'pendiente' ? '5 4' : '', puntos: s.puntos }));
+  series.push({ clave: 'Avance real', nombre: 'Avance real', color: COLOR_REAL, grosor: 3.5, dash: '', puntos: cv.real });
+  const visible = s => G.vis[s.clave] !== false, val = p => G.unidad === 'pct' ? p.acum_pct : p.acum_cent;
+  const W = 760, H = 330, L = 72, R = 16, T = 18, B = 38;
+  const x = i => L + (n <= 1 ? 0 : i * (W - L - R) / (n - 1));
+  const vis = series.filter(visible);
+  const maxV = G.unidad === 'pct' ? 100 : niceMax(Math.max(1, ...vis.flatMap(s => s.puntos.map(val))));
+  const y = v => T + (1 - v / maxV) * (H - T - B);
+  const fmtY = v => G.unidad === 'pct' ? v + ' %' : montoCompacto(v);
+  const xi = p => eje.indexOf(p.mes);
+  const ticks = [0, 1, 2, 3, 4].map(k => maxV * k / 4);
+  const hoyMes = new Date().toISOString().slice(0, 7), hoyI = eje.indexOf(hoyMes);
+  const paso = n > 14 ? 3 : n > 8 ? 2 : 1;
+  raiz.innerHTML = `
+    <div class="leyenda-curvas" role="group" aria-label="Curvas a mostrar">${series.map(s => `<button type="button" class="chip" data-serie="${esc(s.clave)}" aria-pressed="${visible(s)}"><i class="dot" style="background:${s.color}"></i>${esc(s.nombre)}</button>`).join('')}</div>
+    <div class="row"><div class="chips" role="group" aria-label="Unidad del gráfico">
+      <button type="button" class="chip" data-unidad="monto" aria-pressed="${G.unidad === 'monto'}">Montos ($)</button>
+      <button type="button" class="chip" data-unidad="pct" aria-pressed="${G.unidad === 'pct'}">% del contrato</button></div>
+      <button type="button" class="sec" id="grafCsv">⬇ Datos (CSV)</button></div>
+    <div class="graf-caja"><svg class="grafico" viewBox="0 0 ${W} ${H}" role="img" aria-label="Curvas de avance de la obra. ${esc(vis.map(s => { const u = s.puntos[s.puntos.length - 1]; return u ? s.nombre + ' hasta ' + mesTxt(u.mes) + ': ' + (G.unidad === 'pct' ? pctTxt(u.acum_pct) : pesos(u.acum_cent)) : ''; }).join('. '))}">
+      ${ticks.map(v => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${L - 6}" y="${y(v) + 4}" font-size="11" text-anchor="end" fill="var(--muted)">${esc(fmtY(v))}</text>`).join('')}
+      ${eje.map((m, i) => i % paso === 0 ? `<text x="${x(i)}" y="${H - 14}" font-size="10" text-anchor="middle" fill="var(--muted)">${esc(finDeMes(m))}</text>` : '').join('')}
+      ${hoyI >= 0 ? `<line x1="${x(hoyI)}" x2="${x(hoyI)}" y1="${T}" y2="${H - B}" stroke="var(--warn)" stroke-dasharray="3 3"/><text x="${x(hoyI)}" y="${T - 5}" font-size="10" text-anchor="middle" fill="var(--warn)">hoy</text>` : ''}
+      ${vis.map(s => { const pts = s.puntos.map(p => `${x(xi(p)).toFixed(1)},${y(val(p)).toFixed(1)}`);
+        if (!pts.length) return '';
+        const area = `${x(xi(s.puntos[0])).toFixed(1)},${y(0)} ${pts.join(' ')} ${x(xi(s.puntos[s.puntos.length - 1])).toFixed(1)},${y(0)}`;
+        return `<polygon points="${area}" fill="${s.color}" fill-opacity="${s.clave === 'Avance real' ? .28 : .1}"/>
+          <polyline points="${pts.join(' ')}" fill="none" stroke="${s.color}" stroke-width="${s.grosor}" ${s.dash ? `stroke-dasharray="${s.dash}"` : ''}/>
+          ${s.clave === 'Avance real' ? s.puntos.map(p => `<circle cx="${x(xi(p))}" cy="${y(val(p))}" r="3.5" fill="${s.color}"/>`).join('') : ''}`; }).join('')}
+      <line id="guia" x1="0" x2="0" y1="${T}" y2="${H - B}" stroke="var(--fg)" stroke-width="1" style="visibility:hidden"/>
+    </svg><div class="tip" role="status" hidden></div></div>`;
+  raiz.onclick = e => {
+    const b = e.target.closest('[data-serie]'), u = e.target.closest('[data-unidad]');
+    if (b) { G.vis[b.dataset.serie] = !visible(series.find(s => s.clave === b.dataset.serie)); pintarGrafico(cv, raiz); }
+    if (u) { G.unidad = u.dataset.unidad; pintarGrafico(cv, raiz); }
+  };
+  $('#grafCsv').onclick = () => descargarCSV('curvas-de-avance.csv', [['mes', ...series.map(s => s.nombre + ' (acumulado $)')],
+    ...eje.map(m => [m, ...series.map(s => { const p = s.puntos.find(q => q.mes === m); return p ? (p.acum_cent / 100).toFixed(2) : ''; })])]);
+  const svg = raiz.querySelector('svg'), tip = raiz.querySelector('.tip'), guia = svg.querySelector('#guia'), caja = raiz.querySelector('.graf-caja');
+  const mostrar = ev => {
+    const r = svg.getBoundingClientRect(), px = (ev.clientX - r.left) * W / r.width;
+    const i = Math.max(0, Math.min(n - 1, Math.round((px - L) / ((W - L - R) / Math.max(n - 1, 1)))));
+    guia.setAttribute('x1', x(i)); guia.setAttribute('x2', x(i)); guia.style.visibility = 'visible';
+    tip.innerHTML = `<b>${esc(finDeMes(eje[i]))}</b>` + vis.map(s => { const p = s.puntos.find(q => q.mes === eje[i]);
+      return p ? `<div><i class="dot" style="background:${s.color}"></i>${esc(s.nombre)}: <b>${G.unidad === 'pct' ? pctTxt(p.acum_pct) : pesos(p.acum_cent)}</b></div>` : ''; }).join('');
+    tip.hidden = false;
+    const cb = caja.getBoundingClientRect();
+    tip.style.left = Math.max(4, Math.min(ev.clientX - cb.left + 12, cb.width - tip.offsetWidth - 4)) + 'px';
+    tip.style.top = '8px';
+  };
+  svg.onpointermove = mostrar; svg.onpointerdown = mostrar;
+  svg.onpointerleave = () => { tip.hidden = true; guia.style.visibility = 'hidden'; };
+}
+
+// medidor circular, como los del detalle de obra de SIGO
+function medidor(valor, titulo, detalle, color) {
+  const p = Math.max(0, Math.min(100, valor ?? 0)), r = 34, c = 2 * Math.PI * r;
+  return `<div class="medidor" role="img" aria-label="${esc(titulo)}: ${valor === null || valor === undefined ? 'sin datos' : pctTxt(valor)}">
+    <svg viewBox="0 0 90 90" width="104" height="104"><circle cx="45" cy="45" r="${r}" fill="none" stroke="var(--thead)" stroke-width="11"/>
+      <circle cx="45" cy="45" r="${r}" fill="none" stroke="${color}" stroke-width="11" stroke-dasharray="${(p / 100 * c).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 45 45)"/>
+      <text x="45" y="50" text-anchor="middle" font-size="16" font-weight="700" fill="var(--fg)">${valor === null || valor === undefined ? '—' : Math.round(p) + ' %'}</text></svg>
+    <div class="m-tit">${esc(titulo)}</div><div class="small">${detalle}</div></div>`;
 }
 
 async function vistaObras() {
@@ -1647,7 +1734,7 @@ async function vistaObras() {
       <span class="meta">${esc(o.contratista)} · ${esc(ESTADO_OBRA[o.estado])}</span>
       <span class="meta">Comprometido a la fecha ${pctTxt(r.avance_ideal_pct)} · Certificado ${pctTxt(r.avance_certificado_pct)} · ${r.vencida ? 'Plazo vencido' : 'Quedan ' + r.dias_restantes + ' días'}</span>
       ${r.mes_a_medir && rolEn('inspector') ? `<span class="meta"><b>Para medir: ${mesTxt(r.mes_a_medir)}</b></span>` : ''}
-      ${rolEn('administrativo') && r.computos_sin_certificado ? `<span class="meta"><b>${r.computos_sin_certificado} cómputo(s) esperan certificado</b></span>` : ''}
+      ${rolEn('inspector') && r.computos_sin_certificado ? `<span class="meta"><b>${r.computos_sin_certificado} cómputo(s) esperan que los certifiques</b></span>` : ''}
       ${rolEn('autoridad') && r.certificados_pendientes ? `<span class="meta"><b>${r.certificados_pendientes} certificado(s) esperan autorización</b></span>` : ''}
       ${rolEn('contratista') && r.os_sin_responder ? `<span class="meta"><b>${r.os_sin_responder} orden(es) de servicio sin responder</b></span>` : ''}
       ${rolEn('inspector') && (r.documentos_por_revisar || r.recepciones_por_revisar) ? `<span class="meta"><b>Para revisar: ${r.documentos_por_revisar} documento(s) y ${r.recepciones_por_revisar} planilla(s) de hormigón</b></span>` : ''}</button></li>`;
@@ -1658,26 +1745,30 @@ async function vistaObras() {
 // Pestañas de una obra, agrupadas según el sistema al que pertenecen en esta simulación
 function gruposObra() {
   return [
-    { grupo: 'SIGO · Contrato y certificación', tabs: [['resumen', 'Resumen'], ['computos', 'Cómputos'], ['certificados', 'Certificados']] },
-    { grupo: 'SIGUE · Campo', tabs: [['medicion', 'Medición del mes'], ['libro', 'Libro de obra'], ['documentos', 'Documentación'], ['calidad', 'Calidad']] },
+    { grupo: 'SIGO · Contrato y certificación', tabs: [['detalle', 'Detalle de obra'], ['computo', 'Cómputo métrico'], ['certificados', 'Certificados'], ['modificaciones', 'Modificaciones']] },
+    { grupo: 'SIGUE · Campo', tabs: [['libro', 'Libro de obra'], ['documentos', 'Documentación'], ['calidad', 'Calidad']] },
   ];
 }
-const tabInicialObra = () => rolEn('inspector') ? 'medicion' : rolEn('administrativo', 'autoridad') ? 'certificados' : rolEn('contratista') ? 'libro' : 'resumen';
+const tabInicialObra = () => 'detalle';
 
 async function vistaObra() {
   const f = await api('GET', '/obras/' + S.obra.id);
   S.obra.ficha = f;
   const grupos = gruposObra();
   if (!S.obra.tab || !grupos.some(g => g.tabs.some(t => t[0] === S.obra.tab))) S.obra.tab = tabInicialObra(f);
+  const r = f.resumen;
   $('#vista').innerHTML = `<div class="row"><button type="button" class="sec" id="obraVolver">← Todas las obras</button></div>
     <section class="card"><h2>${esc(f.denominacion)}</h2>${AVISO_SIM}
-      <p class="small">${esc(f.contratista)} · Replanteo ${dia(f.fecha_replanteo)} · Plazo ${f.plazo_dias} días · Inspector: ${f.inspector ? esc(f.inspector.nombre) : 'sin asignar'}</p>
+      <p class="small">${esc(f.contratista)} · Replanteo ${dia(f.fecha_replanteo)} · Plazo ${r.plazo.total_dias} días · Inspector: ${f.inspector ? esc(f.inspector.nombre) : 'sin asignar'}</p>
       <div class="modulos">${grupos.map(g => `<div class="modulo"><div class="tit">${esc(g.grupo)}</div>
         <div class="chips" role="group" aria-label="${esc(g.grupo)}">${g.tabs.map(([k, l]) => `<button type="button" class="chip" data-otab="${k}" aria-pressed="${S.obra.tab === k}">${esc(l)}</button>`).join('')}</div></div>`).join('')}</div>
-      <div id="obraCuerpo" aria-live="polite"></div></section>`;
-  $('#obraVolver').onclick = () => { S.obra = { id: null, tab: null }; vistaObras(); };
-  document.querySelector('.modulos').onclick = e => { const b = e.target.closest('[data-otab]'); if (b) { S.obra.tab = b.dataset.otab; vistaObra(); } };
-  const pintor = { resumen: tabResumen, computos: tabComputos, certificados: tabCertificados, medicion: tabMedicion, libro: tabLibro,
+      <div id="obraCuerpo" aria-live="polite"></div></section>
+    <nav class="atajos" aria-label="Atajos para esta obra"><div class="tit">Atajos para esta obra</div>
+      ${grupos.flatMap(g => g.tabs).map(([k, l]) => `<button type="button" class="${S.obra.tab === k ? 'act' : ''}" data-otab="${k}">${esc(l)}</button>`).join('')}
+      <button type="button" id="atajoGrilla">← Todas las obras</button></nav>`;
+  $('#obraVolver').onclick = $('#atajoGrilla').onclick = () => { S.obra = { id: null, tab: null }; vistaObras(); };
+  document.querySelectorAll('[data-otab]').forEach(b => { b.onclick = () => { S.obra.tab = b.dataset.otab; vistaObra(); }; });
+  const pintor = { detalle: tabDetalle, computo: tabComputo, certificados: tabCertificados, modificaciones: tabModificaciones, libro: tabLibro,
                    documentos: tabDocumentos, calidad: tabCalidad }[S.obra.tab];
   await pintor(f);
 }
@@ -1686,46 +1777,68 @@ async function vistaObra() {
 function pendientesObra(r) {
   const items = [];
   if (rolEn('inspector')) {
-    if (r.mes_a_medir) items.push(['medicion', `Medir el avance de ${mesTxt(r.mes_a_medir)}`]);
+    if (r.mes_a_medir) items.push(['computo', `Medir el avance de ${mesTxt(r.mes_a_medir)}`]);
+    if (r.computos_sin_certificado) items.push(['computo', `${r.computos_sin_certificado} cómputo(s) esperan que los certifiques`]);
     if (r.documentos_por_revisar) items.push(['documentos', `${r.documentos_por_revisar} documento(s) por revisar`]);
     if (r.recepciones_por_revisar) items.push(['calidad', `${r.recepciones_por_revisar} planilla(s) de hormigón por revisar`]);
   }
   if (rolEn('contratista') && r.os_sin_responder) items.push(['libro', `${r.os_sin_responder} orden(es) de servicio sin responder`]);
-  if (rolEn('administrativo') && r.computos_sin_certificado) items.push(['certificados', `${r.computos_sin_certificado} cómputo(s) esperan certificado`]);
+  if (rolEn('administrativo') && r.certificados_pendientes) items.push(['certificados', `${r.certificados_pendientes} certificado(s) pendientes: asignar expediente`]);
   if (rolEn('autoridad') && r.certificados_pendientes) items.push(['certificados', `${r.certificados_pendientes} certificado(s) esperan autorización`]);
+  if (rolEn('autoridad') && r.modificacion_pendiente) items.push(['modificaciones', 'Una modificación de curva espera autorización']);
   return items.length ? `<h3>Para atender</h3><div class="chips">${items.map(([k, t]) => `<button type="button" class="chip" data-ir="${k}">${esc(t)}</button>`).join('')}</div>` : '';
 }
 
-async function tabResumen(f) {
-  const r = f.resumen, cv = f.curva, d = cv.desvio;
-  $('#obraCuerpo').onclick = e => { const b = e.target.closest('[data-ir]'); if (b) { S.obra.tab = b.dataset.ir; vistaObra(); } };
-  $('#obraCuerpo').innerHTML = `
-    <div class="kpis-obra">
-      <div class="card"><div class="l">Monto de contrato</div><div class="v">${pesos(r.monto_contrato_cent)}</div></div>
-      <div class="card"><div class="l">Plazo</div><div class="v">${r.vencida ? 'Vencido' : r.dias_restantes + ' días'}</div>
-        <div class="l">Fin: ${dia(r.fecha_fin)}${r.vencida ? (r.plazo_cert_vencida_activo ? ' · con plazo de certificación' : ' · sin plazo de certificación') : ''}</div></div>
-      <div class="card"><div class="l">Comprometido a la fecha</div><div class="v">${pctTxt(r.avance_ideal_pct)}</div></div>
-      <div class="card"><div class="l">Medido (cómputos presentados)</div><div class="v">${pctTxt(r.avance_medido_pct)}</div></div>
-      <div class="card"><div class="l">Certificado</div><div class="v">${pctTxt(r.avance_certificado_pct)}</div></div>
-      <div class="card"><div class="l">Desvío (certificado − comprometido)</div><div class="v">${d.valor === null ? '—' : (d.valor > 0 ? '+' : '') + num(d.valor, 2) + ' pp'}</div>
-        <div class="l">n = ${d.n} · ${esc(d.nota)}</div></div>
+// ---------- Detalle de obra (SIGO): ubicación, medidores, plazos y montos, avance y curvas ----------
+async function tabDetalle(f) {
+  const r = f.resumen, cv = f.curva, d = cv.desvio, cont = $('#obraCuerpo');
+  const fila = (t, v) => `<tr><th scope="row">${esc(t)}</th><td>${v}</td></tr>`;
+  const venc = r.vencida ? (r.plazo_cert_vencida_activo ? ' · con plazo de certificación' : ' · sin plazo de certificación') : '';
+  cont.innerHTML = `${pendientesObra(r)}
+    <div class="det-grid">
+      <div>${f.lat !== null && f.lat !== undefined ? '<div id="mapaObra" class="mapa-obra" role="img" aria-label="Mapa con la ubicación de la obra"></div>' : '<p class="small">La obra no tiene ubicación cargada.</p>'}</div>
+      <div class="medidores">
+        ${medidor(r.plazo_transcurrido_pct, 'Plazo transcurrido', r.vencida ? 'Plazo vencido' : `Quedan ${r.dias_restantes} días`, '#d9882b')}
+        ${medidor(r.avance_certificado_pct, 'Avance físico', `Comprometido a hoy: ${pctTxt(r.avance_ideal_pct)}`, '#1769aa')}
+        ${medidor(r.avance_financiero_pct, 'Avance financiero', `${pesos(r.certificado_autorizado_cent)} autorizados`, '#2f9e62')}
+      </div>
     </div>
-    ${pendientesObra(r)}
-    <h3>Curva de avance: comprometido contra certificado</h3>
-    ${graficoCurva(cv, new Date().toISOString().slice(0, 7))}
-    <details><summary>Ver los números de la curva</summary><div class="tabla-scroll"><table>
+    <h3>Plazos y montos</h3>
+    <div class="tabla-scroll"><table class="ficha"><tbody>
+      ${fila('Replanteo', dia(f.fecha_replanteo))}
+      ${fila('Plazo', `${r.plazo.original_dias} días${r.plazo.ampliaciones_dias ? ` + ${r.plazo.ampliaciones_dias} de ampliación = <b>${r.plazo.total_dias} días</b>` : ''}`)}
+      ${fila('Finalización prevista', dia(r.fecha_fin) + venc)}
+      ${fila('Monto de contrato', `<b>${pesos(r.monto_contrato_cent)}</b>`)}
+      ${fila('Certificado y autorizado', pesos(r.certificado_autorizado_cent))}
+      ${fila('Certificado, pendiente de autorización', pesos(r.certificado_pendiente_cent))}
+      ${fila('Falta certificar', pesos(r.a_certificar_cent))}
+      ${fila('Medido (cómputos presentados)', pctTxt(r.avance_medido_pct))}
+      ${fila('Desvío (certificado − comprometido)', d.valor === null ? '—' : `${d.valor > 0 ? '+' : ''}${num(d.valor, 2)} pp <span class="small">· n = ${d.n} · ${esc(d.nota)}</span>`)}
+      ${fila('Curva ideal vigente', esc(r.curva_vigente || '—'))}
+      ${fila('Anticipo / fondos', `Anticipo ${num(f.anticipo_pct, 2)} % · Fondo de reparo ${num(f.fondo_reparo_pct, 2)} % · ${f.fondo_inspeccion_pct > 0 ? 'Fondo de inspección ' + num(f.fondo_inspeccion_pct, 2) + ' %' : 'NO contiene fondo de inspección'}`)}
+      ${fila('Contratista', esc(f.contratista) + (f.representante ? ' · Representante: ' + esc(f.representante.nombre) : ''))}
+      ${fila('Vencimiento de certificados', `${f.plazo_venc_cert_dias} días después de autorizados`)}
+    </tbody></table></div>
+    <h3>Curvas de avance</h3>
+    <p class="small">Tildá o destildá cada curva. Pasá el mouse (o tocá) sobre el gráfico para ver los valores de un mes.</p>
+    <div id="graficoCurvas"></div>
+    <h3>Avance físico por mes</h3>
+    <div class="tabla-scroll"><table>
       <thead><tr><th>Mes</th><th class="num">Comprometido acum.</th><th class="num">%</th><th class="num">Certificado acum.</th><th class="num">%</th><th class="num">Desvío (pp)</th></tr></thead>
       <tbody>${cv.puntos.map(p => `<tr><td>${mesTxt(p.mes)}</td><td class="num">${pesos(p.ideal_acum_cent)}</td><td class="num">${pctTxt(p.ideal_acum_pct)}</td>
-        <td class="num">${pesos(p.real_acum_cent)}</td><td class="num">${pctTxt(p.real_acum_pct)}</td><td class="num">${p.desvio_pp === null ? '—' : num(p.desvio_pp, 2)}</td></tr>`).join('')}</tbody></table></div></details>
-    <h3>Contrato</h3>
-    <p class="small">Contratista: ${esc(f.contratista)}${f.representante ? ' · Representante: ' + esc(f.representante.nombre) : ''}<br>
-      Inspector asignado: ${f.inspector ? esc(f.inspector.nombre) : 'sin asignar'} · Replanteo: ${dia(f.fecha_replanteo)} · Plazo: ${f.plazo_dias} días<br>
-      Anticipo ${num(f.anticipo_pct, 2)} % · Fondo de reparo ${num(f.fondo_reparo_pct, 2)} % · ${f.fondo_inspeccion_pct > 0 ? 'Fondo de inspección ' + num(f.fondo_inspeccion_pct, 2) + ' %' : 'NO contiene fondo de inspección'}<br>
-      Los certificados vencen ${f.plazo_venc_cert_dias} días después de autorizados.</p>
-    <h3>Presupuesto por ítems</h3>
+        <td class="num">${pesos(p.real_acum_cent)}</td><td class="num">${pctTxt(p.real_acum_pct)}</td><td class="num">${p.desvio_pp === null ? '—' : num(p.desvio_pp, 2)}</td></tr>`).join('')}</tbody></table></div>
+    <details><summary>Presupuesto por ítems</summary>
     ${f.items.map(i => i.es_titulo ? `<div class="tit-rubro">${i.nro}. ${esc(i.descripcion)}</div>` :
       `<div class="item-obra"><span class="n">${i.nro}</span><div><b>${esc(i.descripcion)}</b>
-        <div class="small">${num(i.cantidad_oferta)} ${esc(i.unidad)} × ${pesos(i.precio_oferta_cent)} = ${pesos(i.importe_oferta_cent)} · Medido hasta ahora: ${pctTxt(i.pct_medido)}</div></div></div>`).join('')}`;
+        <div class="small">${num(i.cantidad_oferta)} ${esc(i.unidad)} × ${pesos(i.precio_oferta_cent)} = ${pesos(i.importe_oferta_cent)} · Medido hasta ahora: ${pctTxt(i.pct_medido)}</div></div></div>`).join('')}</details>`;
+  cont.onclick = e => { const b = e.target.closest('[data-ir]'); if (b) { S.obra.tab = b.dataset.ir; vistaObra(); } };
+  pintarGrafico(cv, $('#graficoCurvas'));
+  if ($('#mapaObra') && window.L) {
+    const m = L.map('mapaObra', { scrollWheelZoom: false }).setView([f.lat, f.lon], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap', maxZoom: 19 }).addTo(m);
+    L.circleMarker([f.lat, f.lon], { radius: 9, color: '#0f3a6b', weight: 3, fillColor: '#1e76bb', fillOpacity: .9 }).addTo(m);
+    setTimeout(() => m.invalidateSize(), 60);
+  }
 }
 
 function tablaComputo(k) {
@@ -1740,26 +1853,6 @@ function csvComputo(k, f) {
   const filas = [['nro', 'descripcion', 'unidad', 'cantidad_contratada', 'anterior', 'presente', 'acumulado', 'pct_acumulado', 'importe_presente']];
   for (const i of k.items.filter(x => !x.es_titulo)) filas.push([i.nro, i.descripcion, i.unidad, i.cantidad_oferta, i.anterior, i.presente, i.acumulada, i.pct_acumulado, (i.importe_presente_cent / 100).toFixed(2)]);
   descargarCSV(`computo-${k.mes}.csv`, filas);
-}
-
-async function tabComputos(f) {
-  const cont = $('#obraCuerpo');
-  cont.innerHTML = `<p class="small">Cómputo métrico registrado: el avance físico real de cada mes, ítem por ítem. Cada certificado parcial sale de un cómputo presentado.</p>
-    ${f.computos.length ? f.computos.map(k => `<div class="tarjeta"><div class="row"><b>${mesTxt(k.mes)}</b>${etiqueta(ESTADO_COMPUTO[k.estado][0], ESTADO_COMPUTO[k.estado][1])}
-      ${k.es_final ? etiqueta('Cómputo final', 'info') : ''}${k.certificado ? etiqueta('Certificado N° ' + k.certificado.numero, 'ok') : etiqueta('Sin certificado', 'neutro')}</div>
-      <div class="small">Importe del mes ${pesos(k.importe_mes_cent)} · Personal afectado: ${k.personal_afectado ?? '—'}</div>
-      <div class="row"><button type="button" class="sec" data-kver="${k.id}">Ver el detalle</button></div></div>`).join('') : '<p class="vacio small">Todavía no hay cómputos.</p>'}
-    <div id="detCom"></div>`;
-  cont.onclick = async e => {
-    const b = e.target.closest('[data-kver]');
-    if (!b) return;
-    const k = await api('GET', '/computos/' + b.dataset.kver);
-    $('#detCom').innerHTML = `<h3>Cómputo de ${mesTxt(k.mes)}</h3>${tablaComputo(k)}
-      <p class="small">Personal afectado: ${k.personal_afectado ?? '—'} · Avance acumulado ${pctTxt(k.totales.pct_avance_acumulado)} del contrato${k.observaciones ? ' · Observaciones: ' + esc(k.observaciones) : ''}</p>
-      <div class="row"><button type="button" class="sec" id="csvCom">Descargar cómputo (CSV)</button></div>`;
-    $('#csvCom').onclick = () => csvComputo(k, f);
-    $('#detCom').scrollIntoView({ block: 'start', behavior: 'smooth' });
-  };
 }
 
 // ---------- Certificados (SIGO) ----------
@@ -1797,8 +1890,9 @@ async function tabCertificados(f) {
   const sin = f.computos.filter(k => k.estado === 'presentado' && !k.certificado);
   const vigentes = lista.filter(c => c.estado !== 'anulado');
   const ultimoNumero = vigentes.length ? vigentes[vigentes.length - 1].numero : null;
-  cont.innerHTML = `<p class="small">Cada certificado parcial sale de un cómputo presentado. Nace <b>pendiente de autorización</b>: lo emite el administrativo y lo autoriza la autoridad, que es otra persona.</p>
-    ${rol === 'administrativo' && sin.length ? `<h3>Cómputos esperando certificado (${sin.length})</h3>${sin.map(k => `<div class="tarjeta"><div class="row"><b>${mesTxt(k.mes)}</b>${etiqueta('Presentado', 'info')}${k.es_final ? etiqueta('Cómputo final', 'info') : ''}</div>
+  const soyInsp = esInspectorDe(f);
+  cont.innerHTML = `<p class="small">Cada certificado parcial sale de un cómputo presentado. Nace <b>pendiente de autorización</b>: lo emite el inspector y lo autoriza la autoridad, que es otra persona. El administrativo asigna el expediente.</p>
+    ${soyInsp && sin.length ? `<h3>Cómputos esperando certificado (${sin.length})</h3>${sin.map(k => `<div class="tarjeta"><div class="row"><b>${mesTxt(k.mes)}</b>${etiqueta('Presentado', 'info')}${k.es_final ? etiqueta('Cómputo final', 'info') : ''}</div>
       <div class="small">Importe del mes ${pesos(k.importe_mes_cent)} · Personal afectado: ${k.personal_afectado ?? '—'}</div>
       <div class="row"><button type="button" data-emitir="${k.id}">Emitir certificado</button></div></div>`).join('')}` : ''}
     <h3>Certificados (${lista.length})</h3>
@@ -1814,7 +1908,7 @@ async function tabCertificados(f) {
       <div class="row"><button type="button" class="sec" id="cImprimir">🖨 Imprimir</button>
         ${rol === 'autoridad' && c.estado === 'pendiente' ? '<button type="button" id="cAutorizar">Autorizar certificado</button>' : ''}
         ${rol === 'administrativo' && c.estado !== 'anulado' ? '<button type="button" class="sec" id="cExpediente">Asignar expediente</button>' : ''}
-        ${rol === 'administrativo' && esUltimoPendiente ? '<button type="button" class="sec" id="cAnular">Anular</button>' : ''}</div>`;
+        ${(rol === 'administrativo' || soyInsp) && esUltimoPendiente ? '<button type="button" class="sec" id="cAnular">Anular</button>' : ''}</div>`;
     $('#detCert').scrollIntoView({ block: 'start', behavior: 'smooth' });
     const refrescar = async txt => { toast(txt); S.obra.certAbrir = cid; await vistaObra(); };
     $('#cImprimir').onclick = () => { $('#certImpresion').innerHTML = htmlCertificado(c); window.print(); };
@@ -1849,121 +1943,172 @@ async function tabCertificados(f) {
     if (v) return abrir(+v.dataset.cver);
     if (!em) return;
     const k = sin.find(x => x.id === +em.dataset.emitir);
-    const r = await modal({ titulo: 'Emitir el certificado', html: `<p>Certificado del cómputo de <b>${mesTxt(k.mes)}</b>: importe del mes <b>${pesos(k.importe_mes_cent)}</b>. Va a nacer <b>pendiente de autorización</b>.</p>
-      <label for="mObs">Observaciones${k.importe_mes_cent === 0 ? ' (obligatorias: el monto es $ 0)' : ' (opcional)'}</label><textarea id="mObs" maxlength="1000"></textarea><p class="error err-dlg" role="alert"></p>`,
-      botones: [{ id: 'no', texto: 'Volver', cls: 'sec' }, { id: 'ok', texto: 'Emitir', valor: d => d.querySelector('#mObs').value.trim(),
-        validar: d => (k.importe_mes_cent === 0 && d.querySelector('#mObs').value.trim().length < 5) ? 'El monto es $ 0: escribí el motivo en las observaciones.' : null }] });
-    if (!r || r.id !== 'ok') return;
-    try { const c = await api('POST', `/obras/${f.id}/certificados`, { computo_id: k.id, observaciones: r.valor || null }); toast('Certificado emitido'); S.obra.certAbrir = c.id; await vistaObra(); }
+    try { const c = await emitirCertificadoDe(f, k); if (c) { S.obra.certAbrir = c.id; await vistaObra(); } }
     catch (err) { toast(err.message); }
   };
   if (S.obra.certAbrir) { const id = S.obra.certAbrir; S.obra.certAbrir = null; await abrir(id); }
 }
 
-// ---------- Medición del mes (campo) ----------
-async function tabMedicion(f) {
-  const cont = $('#obraCuerpo'), r = f.resumen;
-  const soyInspector = rolEn('inspector') && f.inspector && f.inspector.id === S.usuario.id;
-  if (!soyInspector) {
-    cont.innerHTML = `<p>La medición mensual la hace el inspector asignado a la obra${f.inspector ? ' (' + esc(f.inspector.nombre) + ')' : ''}. Podés ver los cómputos presentados en la pestaña "Cómputos".</p>`;
-    return;
-  }
-  if (r.computo_en_curso) return editorComputo(r.computo_en_curso);
+// ---------- Cómputo métrico (SIGO / SIGUE): medir, presentar y certificar en una sola pantalla ----------
+// El inspector emite el certificado (nace pendiente) y otra persona, la autoridad, lo autoriza.
+async function emitirCertificadoDe(f, k) {
+  const r = await modal({ titulo: 'Certificar el cómputo', html: `<p>Certificado del cómputo de <b>${mesTxt(k.mes)}</b>: importe del mes <b>${pesos(k.importe_mes_cent)}</b>. Va a nacer <b>pendiente de autorización</b>: lo autoriza otra persona.</p>
+    <label for="mObs">Observaciones${k.importe_mes_cent === 0 ? ' (obligatorias: el monto es $ 0)' : ' (opcional)'}</label><textarea id="mObs" maxlength="1000"></textarea><p class="error err-dlg" role="alert"></p>`,
+    botones: [{ id: 'no', texto: 'Volver', cls: 'sec' }, { id: 'ok', texto: 'Certificar', valor: d => d.querySelector('#mObs').value.trim(),
+      validar: d => (k.importe_mes_cent === 0 && d.querySelector('#mObs').value.trim().length < 5) ? 'El monto es $ 0: escribí el motivo en las observaciones.' : null }] });
+  if (!r || r.id !== 'ok') return null;
+  const c = await api('POST', `/obras/${f.id}/certificados`, { computo_id: k.id, observaciones: r.valor || null });
+  toast('Certificado emitido: queda pendiente de autorización');
+  return c;
+}
+
+function pasosComputo(k) {
+  const c = k.certificado;
+  const pasos = [['Medir', k.estado !== 'borrador'], ['Presentar', k.estado === 'presentado'], ['Certificar', !!c], ['Autorizar', !!c && c.estado === 'autorizado']];
+  const actual = pasos.findIndex(p => !p[1]);
+  return `<ol class="stepper" aria-label="Pasos del cómputo">${pasos.map(([t, hecho], i) => `<li class="${hecho ? 'hecho' : i === actual ? 'act' : ''}" ${i === actual ? 'aria-current="step"' : ''}><span class="n">${hecho ? '✓' : i + 1}</span>${t}</li>`).join('')}</ol>`;
+}
+
+async function tabComputo(f) {
+  const cont = $('#obraCuerpo'), r = f.resumen, soy = esInspectorDe(f);
   const ult = f.computos[f.computos.length - 1];
   let motivo = '';
   if (f.estado !== 'en_ejecucion') motivo = 'La obra no está en ejecución.';
   else if (ult && ult.es_final) motivo = 'La obra ya tiene su cómputo final.';
-  else if (ult && ult.estado === 'presentado' && !ult.certificado) motivo = `El cómputo de ${mesTxt(ult.mes)} ya fue presentado. Para abrir el siguiente tiene que estar generado el certificado de ese mes, que emite el administrativo.`;
+  else if (ult && ult.estado === 'presentado' && !ult.certificado) motivo = `El cómputo de ${mesTxt(ult.mes)} ya fue presentado. Para abrir el siguiente tiene que estar certificado.`;
   else if (!r.mes_a_medir) motivo = 'Todavía no hay avance para medir: el mes siguiente no empezó.';
-  const vencida = r.vencida && !r.plazo_cert_vencida_activo;
-  cont.innerHTML = `<p>Acá cargás el avance real de la obra, mes a mes. <b>Cargá sólo lo que avanzó en el mes</b>, en cantidades: no el acumulado ni porcentajes.</p>
-    ${ult ? `<p class="small">Último cómputo: ${mesTxt(ult.mes)} (${ESTADO_COMPUTO[ult.estado][0].toLowerCase()}).</p>` : '<p class="small">Todavía no hay cómputos: el primero es el mes del replanteo.</p>'}
-    ${vencida ? `<div class="msg aviso" role="alert">La obra venció el ${dia(r.fecha_fin)}. Antes de cargar un cómputo hace falta un <b>plazo de certificación de obra vencida</b>, que registra el administrativo.</div>` : ''}
-    ${motivo ? `<div class="msg aviso" role="status">${esc(motivo)}</div>` : ''}
-    ${r.mes_a_medir && !motivo ? `<div class="row"><button type="button" class="big" id="abrirComputo" ${vencida ? 'disabled' : ''}>Abrir el cómputo de ${mesTxt(r.mes_a_medir)}</button></div>` : ''}
-    <div id="medMsg"></div>`;
-  if ($('#abrirComputo')) $('#abrirComputo').onclick = async () => {
-    try { const k = await api('POST', `/obras/${f.id}/computos`, {}); toast('Cómputo abierto'); await vistaObra(); }
-    catch (err) { mensaje($('#medMsg'), err.message, false); }
-  };
+  const puedeNuevo = soy && !r.computo_en_curso && !!r.mes_a_medir && !motivo;
+  const hayNuevo = soy && !r.computo_en_curso;
+  let sel = S.obra.kid;
+  if (sel !== 'nuevo' && !f.computos.some(k => k.id === sel)) sel = r.computo_en_curso || (ult ? ult.id : 'nuevo');
+  if (sel === 'nuevo' && !hayNuevo) sel = ult ? ult.id : null;
+  S.obra.kid = sel;
+  const tabs = f.computos.map(k => `<button type="button" class="chip" data-k="${k.id}" aria-pressed="${sel === k.id}">${mesTxt(k.mes)}${k.estado === 'borrador' ? ' ✎' : ''}</button>`).join('')
+    + (hayNuevo ? `<button type="button" class="chip" data-k="nuevo" aria-pressed="${sel === 'nuevo'}">+ Nuevo cómputo</button>` : '');
+  cont.innerHTML = `<p class="small">El avance real de la obra, mes a mes y ítem por ítem. <b>Se carga sólo lo que avanzó en el mes</b>, en cantidades: no el acumulado ni porcentajes.</p>
+    <div class="chips" role="group" aria-label="Cómputos de la obra">${tabs || '<span class="small">Todavía no hay cómputos.</span>'}</div>
+    <div id="cuerpoComputo"></div>`;
+  cont.onclick = e => { const b = e.target.closest('[data-k]'); if (b) { S.obra.kid = b.dataset.k === 'nuevo' ? 'nuevo' : +b.dataset.k; tabComputo(f); } };
+  const cuerpo = $('#cuerpoComputo');
+  if (sel === 'nuevo') {
+    const vencida = r.vencida && !r.plazo_cert_vencida_activo;
+    cuerpo.innerHTML = `${ult ? `<p class="small">Último cómputo: ${mesTxt(ult.mes)} (${ESTADO_COMPUTO[ult.estado][0].toLowerCase()}).</p>` : '<p class="small">Todavía no hay cómputos: el primero es el mes del replanteo.</p>'}
+      ${vencida ? `<div class="msg aviso" role="alert">Para dar de alta un plazo cert. obra vencida haga click aquí: la obra venció el ${dia(r.fecha_fin)} y hace falta un <b>plazo de certificación de obra vencida</b>, que registra el administrativo.</div>` : ''}
+      ${motivo ? `<div class="msg aviso" role="status">${esc(motivo)}</div>` : ''}
+      ${puedeNuevo ? `<div class="row"><button type="button" class="big" id="abrirComputo" ${vencida ? 'disabled' : ''}>Abrir el cómputo de ${mesTxt(r.mes_a_medir)}</button></div>` : ''}<div id="medMsg"></div>`;
+    if ($('#abrirComputo')) $('#abrirComputo').onclick = async () => {
+      try { const k = await api('POST', `/obras/${f.id}/computos`, {}); S.obra.kid = k.id; toast('Cómputo abierto'); await vistaObra(); }
+      catch (err) { mensaje($('#medMsg'), err.message, false); }
+    };
+    return;
+  }
+  if (sel === null) { cuerpo.innerHTML = `<p class="vacio small">Todavía no hay cómputos. ${f.inspector ? 'Los carga el inspector asignado: ' + esc(f.inspector.nombre) + '.' : ''}</p>`; return; }
+  return pantallaComputo(f, sel, soy);
 }
 
-async function editorComputo(kid) {
-  const k = await api('GET', '/computos/' + kid), f = S.obra.ficha, cont = $('#obraCuerpo');
-  const ed = k.editable, items = k.items.filter(i => !i.es_titulo);
-  const filas = k.items.map(i => i.es_titulo ? `<div class="tit-rubro">${i.nro}. ${esc(i.descripcion)}</div>` :
-    `<div class="med" data-fila="${i.item_id}"><div><b>${i.nro}. ${esc(i.descripcion)}</b></div>
-      <div class="small">Contratado: ${num(i.cantidad_oferta)} ${esc(i.unidad)} · Hasta el mes anterior: ${num(i.anterior)} (${pctTxt(i.pct_anterior)})</div>
-      <label for="q${i.item_id}">Avance de ${mesTxt(k.mes)} (${esc(i.unidad)})</label>
-      <input id="q${i.item_id}" inputmode="decimal" autocomplete="off" placeholder="0" data-q="${i.item_id}" value="${i.presente ? String(i.presente).replace('.', ',') : ''}" ${ed ? '' : 'readonly'}>
-      <div class="prev" data-prev="${i.item_id}"></div></div>`).join('');
+async function pantallaComputo(f, kid, soy) {
+  const k = await api('GET', '/computos/' + kid), cont = $('#cuerpoComputo');
+  const ed = k.editable && soy, items = k.items.filter(i => !i.es_titulo);
   const [nombreEstado, tipoEstado] = ESTADO_COMPUTO[k.estado];
-  cont.innerHTML = `<div class="row"><h3 style="margin:0">Medición de ${mesTxt(k.mes)}</h3>${etiqueta(nombreEstado, tipoEstado)}${k.certificado ? etiqueta('Certificado N° ' + k.certificado.numero, 'ok') : ''}</div>
-    <p class="small">Cargá la cantidad que avanzó <b>sólo este mes</b>. El sistema calcula el acumulado, el porcentaje y los importes.${ed ? '' : ' Ya existe el certificado de este mes: no se puede modificar.'}</p>
-    ${ed ? `<div class="row"><button type="button" class="sec" id="csvBajar">⬇ Descargar planilla (CSV)</button><button type="button" class="sec" id="csvSubir">⬆ Subir planilla (CSV)</button>
-      <input type="file" id="csvArchivo" accept=".csv,text/csv" hidden></div><p class="small">La planilla es un CSV: el Excel real se exporta a CSV. Al subirla se completan los casilleros y vos revisás antes de guardar.</p>` : ''}
-    <div id="medMsg"></div>${filas}
-    <label for="personal">Personal afectado a la obra en el mes (obligatorio para presentar)</label>
-    <input id="personal" type="number" min="0" step="1" inputmode="numeric" style="max-width:160px" value="${k.personal_afectado ?? ''}" ${ed ? '' : 'readonly'}>
-    <label><input type="checkbox" id="esFinal" ${k.es_final ? 'checked' : ''} ${ed ? '' : 'disabled'}> Es el cómputo final (la obra terminó)</label>
+  const resumenK = f.computos.find(x => x.id === kid);
+  const total = i => Math.round(i.cantidad_oferta * i.precio_cent);
+  const filas = k.items.map(i => i.es_titulo ? `<tr class="rubro"><td>${i.nro}</td><td colspan="9"><b>${esc(i.descripcion)}</b></td></tr>` :
+    `<tr data-fila="${i.item_id}"><td>${i.nro}</td><td>${esc(i.descripcion)}</td><td>${esc(i.unidad)}</td><td>$</td><td class="num">${num(i.cantidad_oferta)}</td>
+      <td class="num">${pesos(i.precio_cent)}</td><td class="num">${pesos(total(i))}</td>
+      <td class="num"><input id="q${i.item_id}" class="cant" inputmode="decimal" autocomplete="off" placeholder="0" data-q="${i.item_id}" aria-label="Cantidad certificada en ${mesTxt(k.mes)} del ítem ${i.nro}"
+        value="${i.presente ? String(i.presente).replace('.', ',') : ''}" ${ed ? '' : 'readonly'}></td>
+      <td class="num" data-acum="${i.item_id}">${num(i.acumulada)}</td><td class="num" data-pct="${i.item_id}">${pctTxt(i.pct_acumulado)}</td></tr>`).join('');
+  cont.innerHTML = `${pasosComputo(k)}
+    <div class="row"><h3 style="margin:0">Cómputo de ${mesTxt(k.mes)}</h3>${etiqueta(nombreEstado, tipoEstado)}
+      ${k.certificado ? etiqueta(`Certificado N° ${k.certificado.numero} · ${ESTADO_CERT[k.certificado.estado][0]}`, ESTADO_CERT[k.certificado.estado][1]) : etiqueta('Sin certificado', 'neutro')}</div>
+    <p class="small">${ed ? '' : (k.editable ? 'Sólo el inspector asignado puede modificar el cómputo. ' : 'Ya existe el certificado de este mes: el cómputo no se puede modificar. ')}Importe del mes <b>${pesos(resumenK ? resumenK.importe_mes_cent : k.totales.importe_presente_cent)}</b>.</p>
+    <div class="row"><button type="button" class="sec" id="kPdf">📄 Ver cómputo (PDF)</button><button type="button" class="sec" id="csvCom">⬇ Cómputo (Excel/CSV)</button>
+      ${ed ? '<button type="button" class="sec" id="csvBajar">⬇ Planilla para completar</button><button type="button" class="sec" id="csvSubir">⬆ Subir planilla</button><input type="file" id="csvArchivo" accept=".csv,text/csv" hidden>' : ''}
+      ${k.certificado ? '<button type="button" class="sec" id="kVerCert">Ver el certificado</button>' : ''}</div>
+    <div id="medMsg"></div>
+    <div class="row"><label for="personal" style="margin:0">Personal afectado a la obra en el mes</label>
+      <input id="personal" type="number" min="0" step="1" inputmode="numeric" style="max-width:130px" value="${k.personal_afectado ?? ''}" ${ed ? '' : 'readonly'}>
+      <label style="margin:0"><input type="checkbox" id="esFinal" ${k.es_final ? 'checked' : ''} ${ed ? '' : 'disabled'}> Cómputo final</label></div>
+    <div class="tabla-scroll"><table class="computo"><thead><tr><th>Nº</th><th>Descripción</th><th>Unidad</th><th>Moneda</th><th class="num">Cantidad</th><th class="num">Precio unitario</th>
+      <th class="num">Precio total</th><th class="num">Cant. certificada ${mesTxt(k.mes)}</th><th class="num">A la fecha</th><th class="num">% ejecutado</th></tr></thead><tbody>${filas}
+      <tr class="tot"><td colspan="6"><b>Total</b></td><td class="num"><b>${pesos(items.reduce((s, i) => s + total(i), 0))}</b></td><td class="num" id="totMes"><b>—</b></td><td></td><td class="num" id="totAcum"><b>—</b></td></tr></tbody></table></div>
+    <div id="avisosSup"></div>
     <label for="obsComputo">Observaciones${k.items_que_superan_oferta.length ? ' (obligatorias: hay ítems que superan lo contratado)' : ''}</label>
     <textarea id="obsComputo" maxlength="1000" ${ed ? '' : 'readonly'}>${esc(k.observaciones || '')}</textarea>
-    <div class="barra-fija" aria-live="polite"><span>Importe del mes: <b id="totMes">—</b></span><span>Avance acumulado: <b id="totAcum">—</b></span>
+    ${ed || (soy && k.estado === 'presentado' && !k.certificado) ? `<div class="barra-fija" aria-live="polite"><span>Importe del mes: <b id="impMes">—</b></span>
       ${ed ? `<button type="button" class="sec" id="gGuardar">Guardar ${k.estado === 'presentado' ? 'cambios' : 'borrador'}</button>
-        ${k.estado === 'borrador' ? '<button type="button" id="gPresentar">Presentar cómputo</button>' : ''}<button type="button" class="sec" id="gEliminar">Eliminar</button>` : ''}</div>`;
+        ${k.estado === 'borrador' ? '<button type="button" id="gPresentar">Presentar cómputo</button>' : ''}${k.estado === 'presentado' ? '<button type="button" id="gCertificar">Certificar</button>' : ''}
+        <button type="button" class="sec" id="gEliminar">Eliminar</button>` : ''}</div>` : ''}`;
 
-  const leer = () => {
-    const out = {};
-    for (const i of items) out[i.item_id] = numEntrada($(`#q${i.item_id}`).value);
-    return out;
+  $('#csvCom').onclick = () => csvComputo(k, f);
+  $('#kPdf').onclick = () => {
+    $('#certImpresion').innerHTML = `<div class="cert"><div class="cert-cab"><b>CÓMPUTO MÉTRICO · ${mesTxt(k.mes)}</b></div><p class="small"><b>Simulación con datos ficticios. Sin validez legal.</b></p>
+      <p>${esc(f.denominacion)}<br>Contratista: ${esc(f.contratista)}</p>${tablaComputo(k)}
+      <p class="small">Personal afectado: ${k.personal_afectado ?? '—'} · Avance acumulado ${pctTxt(k.totales.pct_avance_acumulado)} del contrato${k.es_final ? ' · Cómputo final' : ''}${k.observaciones ? ' · Observaciones: ' + esc(k.observaciones) : ''}</p></div>`;
+    window.print();
   };
+  if ($('#kVerCert')) $('#kVerCert').onclick = () => { S.obra.tab = 'certificados'; S.obra.certAbrir = k.certificado.id; vistaObra(); };
+
+  const leer = () => { const out = {}; for (const i of items) out[i.item_id] = numEntrada($(`#q${i.item_id}`).value); return out; };
   const actualizar = () => {
     const v = leer();
     let mes = 0, acum = 0, hayError = false;
+    const supera = [];
     for (const i of items) {
-      const q = v[i.item_id], prev = $(`[data-prev="${i.item_id}"]`), fila = $(`[data-fila="${i.item_id}"]`);
-      if (Number.isNaN(q) || q < 0) { prev.innerHTML = '<span class="b-bad"><b>Número no válido</b></span>'; hayError = true; continue; }
-      const total = i.anterior + q, importeMes = Math.round(q * i.precio_cent);
-      mes += importeMes; acum += Math.round(total * i.precio_cent);
-      const sup = total > i.cantidad_oferta + 0.0005;
+      const q = v[i.item_id], fila = $(`[data-fila="${i.item_id}"]`);
+      if (Number.isNaN(q) || q < 0) { fila.classList.add('alerta'); hayError = true; continue; }
+      const tot = i.anterior + q;
+      mes += Math.round(q * i.precio_cent); acum += Math.round(tot * i.precio_cent);
+      const sup = tot > i.cantidad_oferta + 0.0005;
       fila.classList.toggle('alerta', sup);
-      prev.innerHTML = `Acumulado: ${num(total)} ${esc(i.unidad)} (${pctTxt(i.cantidad_oferta ? Math.round(total / i.cantidad_oferta * 10000) / 100 : 0)}) · Importe del mes: ${pesos(importeMes)}` +
-        (sup ? ' <span class="b-warn"><b>⚠️ Supera lo contratado: explicalo en las observaciones</b></span>' : '');
+      if (sup) supera.push(i.nro);
+      $(`[data-acum="${i.item_id}"]`).textContent = num(tot);
+      $(`[data-pct="${i.item_id}"]`).textContent = pctTxt(i.cantidad_oferta ? Math.round(tot / i.cantidad_oferta * 10000) / 100 : 0);
     }
-    $('#totMes').textContent = hayError ? '—' : pesos(mes);
-    $('#totAcum').textContent = hayError ? '—' : pctTxt(k.monto_contrato_cent ? Math.round(acum / k.monto_contrato_cent * 10000) / 100 : 0);
+    $('#totMes').innerHTML = `<b>${hayError ? '—' : pesos(mes)}</b>`;
+    $('#totAcum').innerHTML = `<b>${hayError ? '—' : pctTxt(k.monto_contrato_cent ? Math.round(acum / k.monto_contrato_cent * 10000) / 100 : 0)}</b>`;
+    if ($('#impMes')) $('#impMes').textContent = hayError ? '—' : pesos(mes);
+    $('#avisosSup').innerHTML = hayError ? '<div class="msg err" role="alert">Hay números no válidos: revisá los casilleros marcados.</div>'
+      : supera.length ? `<div class="msg aviso" role="status">⚠️ Los ítems ${supera.join(', ')} superan lo contratado: explicalo en las observaciones.</div>` : '';
     return !hayError;
   };
-  const cuerpo = () => ({
+  actualizar();
+  if (!ed) return;
+  const cuerpoK = () => ({
     items: items.map(i => ({ item_id: i.item_id, cantidad: leer()[i.item_id] })),
     personal_afectado: $('#personal').value === '' ? null : +$('#personal').value,
     es_final: $('#esFinal').checked, observaciones: $('#obsComputo').value });
-  actualizar();
-  if (!ed) return;
   cont.querySelectorAll('[data-q]').forEach(i => { i.oninput = actualizar; });
-  const guardar = async () => { if (!actualizar()) throw new Error('Revisá los números marcados antes de guardar.'); return api('POST', `/computos/${kid}/guardar`, cuerpo()); };
-  $('#gGuardar').onclick = async () => {
-    try { await guardar(); toast('Guardado'); await vistaObra(); } catch (err) { mensaje($('#medMsg'), err.message, false); $('#medMsg').scrollIntoView({ block: 'center' }); }
-  };
+  const guardar = async () => { if (!actualizar()) throw new Error('Revisá los números marcados antes de guardar.'); return api('POST', `/computos/${kid}/guardar`, cuerpoK()); };
+  const falla = err => { mensaje($('#medMsg'), err.message, false); $('#medMsg').scrollIntoView({ block: 'center' }); };
+  $('#gGuardar').onclick = async () => { try { await guardar(); toast('Guardado'); await vistaObra(); } catch (err) { falla(err); } };
   if ($('#gPresentar')) $('#gPresentar').onclick = async () => {
     try {
-      const b = cuerpo();
+      const b = cuerpoK();
       if (b.personal_afectado === null) { $('#personal').focus(); throw new Error('Falta la cantidad de personal afectado a la obra: es obligatoria para presentar.'); }
-      const r = await modal({ titulo: 'Presentar el cómputo', html: `<p>Vas a presentar el cómputo de <b>${mesTxt(k.mes)}</b>: importe del mes <b>${$('#totMes').textContent}</b>, personal afectado <b>${b.personal_afectado}</b>${b.es_final ? ', <b>cómputo final</b>' : ''}.</p>
+      const r = await modal({ titulo: 'Presentar el cómputo', html: `<p>Vas a presentar el cómputo de <b>${mesTxt(k.mes)}</b>: importe del mes <b>${$('#impMes').textContent}</b>, personal afectado <b>${b.personal_afectado}</b>${b.es_final ? ', <b>cómputo final</b>' : ''}.</p>
         <p class="small">Después se puede corregir sólo mientras no exista el certificado de ese mes.</p>`,
         botones: [{ id: 'no', texto: 'Volver', cls: 'sec' }, { id: 'ok', texto: 'Presentar' }] });
       if (!r || r.id !== 'ok') return;
       await guardar();
       await api('POST', `/computos/${kid}/presentar`, {});
-      toast('Cómputo presentado');
+      toast('Cómputo presentado: ya se puede certificar');
       await vistaObra();
-    } catch (err) { mensaje($('#medMsg'), err.message, false); $('#medMsg').scrollIntoView({ block: 'center' }); }
+    } catch (err) { falla(err); }
+  };
+  if ($('#gCertificar')) $('#gCertificar').onclick = async () => {
+    try {
+      await guardar();
+      const k2 = (await api('GET', '/obras/' + f.id)).computos.find(x => x.id === kid);
+      const c = await emitirCertificadoDe(f, k2);
+      if (c) { S.obra.tab = 'certificados'; S.obra.certAbrir = c.id; await vistaObra(); }
+    } catch (err) { falla(err); }
   };
   $('#gEliminar').onclick = async () => {
     const r = await modal({ titulo: 'Eliminar el cómputo', html: `<p>Se elimina el cómputo de <b>${mesTxt(k.mes)}</b>. Queda registrado en el historial y el mes vuelve a estar disponible.</p>`,
       botones: [{ id: 'no', texto: 'Volver', cls: 'sec' }, { id: 'ok', texto: 'Eliminar' }] });
     if (!r || r.id !== 'ok') return;
-    try { await api('POST', `/computos/${kid}/eliminar`, {}); toast('Cómputo eliminado'); await vistaObra(); } catch (err) { mensaje($('#medMsg'), err.message, false); }
+    try { await api('POST', `/computos/${kid}/eliminar`, {}); S.obra.kid = null; toast('Cómputo eliminado'); await vistaObra(); } catch (err) { falla(err); }
   };
   $('#csvBajar').onclick = () => {
     const v = leer();
@@ -1979,7 +2124,7 @@ async function editorComputo(kid) {
       const filas = leerCSV(await archivo.text());
       const cab = (filas[0] || []).map(x => x.trim().toLowerCase());
       const iNro = cab.indexOf('nro'), iCant = cab.findIndex(x => ['cantidad_este_mes', 'cantidad_mes', 'presente'].includes(x));
-      if (iNro < 0 || iCant < 0) throw new Error('La planilla debe tener las columnas "nro" y "cantidad_este_mes". Descargá la planilla de ejemplo y completala.');
+      if (iNro < 0 || iCant < 0) throw new Error('La planilla debe tener las columnas "nro" y "cantidad_este_mes". Descargá la planilla y completala.');
       let cargados = 0; const ignorados = [];
       for (const fila of filas.slice(1)) {
         const item = items.find(i => String(i.nro) === String(fila[iNro]).trim());
@@ -1992,6 +2137,84 @@ async function editorComputo(kid) {
       actualizar();
       mensaje($('#medMsg'), `Se completaron ${cargados} ítems desde la planilla${ignorados.length ? ` (se ignoraron ${ignorados.length} filas con ítems que no existen: ${ignorados.slice(0, 5).join(', ')})` : ''}. Revisá y guardá.`, true);
     } catch (err) { mensaje($('#medMsg'), err.message, false); }
+  };
+}
+
+// ---------- Modificaciones de la obra (SIGO): curva ideal y ampliación de plazo ----------
+const TIPO_MOD = { MCI: 'Modificación de curva ideal', AP: 'Ampliación de plazo' };
+
+async function tabModificaciones(f) {
+  const cont = $('#obraCuerpo'), rol = S.usuario.rol;
+  const d = await api('GET', `/obras/${f.id}/modificaciones`);
+  cont.innerHTML = `<p class="small">La curva ideal es lo comprometido mes a mes. Una <b>modificación de curva ideal</b> (se respalda con un Acta Acuerdo) la autoriza la autoridad antes de regir; una <b>ampliación de plazo</b> suma días y rige de inmediato. Vigente hoy: <b>${esc(d.vigente || '—')}</b> · Plazo ${d.plazo.original_dias} días${d.plazo.ampliaciones_dias ? ` + ${d.plazo.ampliaciones_dias} de ampliación` : ''}.</p>
+    ${rol === 'administrativo' ? `<div class="row"><button type="button" class="big" id="modNueva" ${d.hay_pendiente ? 'disabled' : ''}>+ Agregar modificación</button></div>${d.hay_pendiente ? '<p class="small">Hay una modificación pendiente: se autoriza antes de cargar otra.</p>' : ''}` : ''}
+    <div id="modMsg"></div>
+    ${d.modificaciones.length ? d.modificaciones.map(m => `<div class="tarjeta"><div class="row"><b>${esc(m.nombre)}</b><span class="small">${TIPO_MOD[m.tipo]}</span>
+      ${etiqueta(m.estado === 'pendiente' ? 'Pendiente de autorización' : 'Autorizada', m.estado === 'pendiente' ? 'aviso' : 'ok')}${m.vigente ? etiqueta('Vigente', 'info') : ''}</div>
+      <div class="small">Trámite ${esc(m.tramite)} · ${esc(m.instrumento)}${m.dias ? ` · +${m.dias} días` : ''}<br>Cargada por ${esc(m.creada_por_nombre)} el ${fmt(m.creada_at)}${m.autorizada_por_nombre && m.estado === 'autorizada' && m.tipo === 'MCI' ? ` · Autorizada por ${esc(m.autorizada_por_nombre)} el ${fmt(m.autorizada_at)}` : ''}${m.observaciones ? '<br>' + esc(m.observaciones) : ''}</div>
+      ${rol === 'autoridad' && m.estado === 'pendiente' ? `<div class="row"><button type="button" data-aut="${m.id}">Autorizar</button></div>` : ''}</div>`).join('') : '<p class="vacio small">La obra no tiene modificaciones: rige la curva Principal.</p>'}`;
+  cont.onclick = async e => {
+    const b = e.target.closest('[data-aut]');
+    if (!b) return;
+    const r = await modal({ titulo: 'Autorizar la modificación', html: '<p>Desde que la autorices, esta curva pasa a ser la vigente para medir el desvío de la obra.</p>',
+      botones: [{ id: 'no', texto: 'Volver', cls: 'sec' }, { id: 'ok', texto: 'Autorizar' }] });
+    if (!r || r.id !== 'ok') return;
+    try { await api('POST', `/modificaciones/${b.dataset.aut}/autorizar`, {}); toast('Modificación autorizada'); await vistaObra(); } catch (err) { mensaje($('#modMsg'), err.message, false); }
+  };
+  if (!$('#modNueva')) return;
+  $('#modNueva').onclick = async () => {
+    let ideal = null;
+    const r = await modal({ titulo: 'Agregar modificación', html: `<label for="mTipo">Tipo</label><select id="mTipo"><option value="MCI">Modificación de curva ideal (MCI)</option><option value="AP">Ampliación de plazo (AP)</option></select>
+      <label for="mTram">Número de trámite</label><input id="mTram" maxlength="40" autocomplete="off">
+      <label for="mInst">Instrumento legal</label><input id="mInst" maxlength="80" autocomplete="off" placeholder="Acta Acuerdo N° …">
+      <div id="mDiasCaja" hidden><label for="mDias">Días que se amplían</label><input id="mDias" type="number" min="1" max="1000" step="1" inputmode="numeric"></div>
+      <label for="mObs">Observaciones (opcional)</label><textarea id="mObs" maxlength="500"></textarea>
+      <p class="small"><b>Curva nueva.</b> Descargá la planilla con la curva vigente, modificá las cantidades de cada mes y subila. Si no subís nada, se copia la vigente.</p>
+      <div class="row"><button type="button" class="sec" id="mBajar">⬇ Planilla de la curva (CSV)</button><button type="button" class="sec" id="mSubir">⬆ Subir planilla</button><input type="file" id="mArchivo" accept=".csv,text/csv" hidden></div>
+      <p class="small" id="mEstadoCsv"></p><p class="error err-dlg" role="alert"></p>`,
+      botones: [{ id: 'no', texto: 'Volver', cls: 'sec' }, { id: 'ok', texto: 'Cargar', valor: dl => ({ tipo: dl.querySelector('#mTipo').value, tramite: dl.querySelector('#mTram').value.trim(),
+        instrumento: dl.querySelector('#mInst').value.trim(), dias: dl.querySelector('#mDias').value ? +dl.querySelector('#mDias').value : null,
+        observaciones: dl.querySelector('#mObs').value.trim() || null, ideal }),
+        validar: dl => dl.querySelector('#mTram').value.trim().length < 3 ? 'Escribí el número de trámite.' : dl.querySelector('#mInst').value.trim().length < 3 ? 'Escribí el instrumento legal.'
+          : dl.querySelector('#mTipo').value === 'AP' && !(+dl.querySelector('#mDias').value >= 1) ? 'Indicá cuántos días se amplía el plazo.' : null }],
+      alAbrir: dl => {
+        const tipo = dl.querySelector('#mTipo');
+        tipo.onchange = () => { dl.querySelector('#mDiasCaja').hidden = tipo.value !== 'AP'; };
+        dl.querySelector('#mBajar').onclick = async () => {
+          const cvg = await api('GET', `/obras/${f.id}/curva-ideal`);
+          const extra = tipo.value === 'AP' ? Math.ceil((+dl.querySelector('#mDias').value || 30) / 30) : 0;
+          const meses = cvg.meses.slice();
+          for (let i = 0; i < extra && meses.length; i++) { const [a, m] = meses[meses.length - 1].split('-').map(Number); meses.push(a + (m === 12 ? 1 : 0) + '-' + String(m % 12 + 1).padStart(2, '0')); }
+          descargarCSV(`curva-ideal-${cvg.curva}.csv`, [['nro', 'descripcion', 'unidad', 'cantidad_contratada', ...meses],
+            ...cvg.items.map(i => [i.nro, i.descripcion, i.unidad, i.cantidad_oferta, ...meses.map(m => i.ideal[m] || '')])]);
+        };
+        dl.querySelector('#mSubir').onclick = () => dl.querySelector('#mArchivo').click();
+        dl.querySelector('#mArchivo').onchange = async e => {
+          const a = e.target.files[0]; e.target.value = '';
+          if (!a) return;
+          try {
+            const filas = leerCSV(await a.text()), cab = (filas[0] || []).map(x => x.trim());
+            const iNro = cab.map(x => x.toLowerCase()).indexOf('nro'), cols = cab.map((x, i) => [x, i]).filter(([x]) => /^\d{4}-(0[1-9]|1[0-2])$/.test(x));
+            if (iNro < 0 || !cols.length) throw new Error('La planilla necesita la columna "nro" y una columna por mes (AAAA-MM). Descargá la planilla y modificala.');
+            const nuevo = {};
+            for (const fila of filas.slice(1)) {
+              const nro = String(fila[iNro]).trim(); if (!nro) continue;
+              nuevo[nro] = {};
+              for (const [mes, i] of cols) {
+                const q = numEntrada(fila[i] ?? '');
+                if (Number.isNaN(q) || q < 0) throw new Error(`El ítem ${nro} tiene un número no válido en ${mes}: "${fila[i]}".`);
+                if (q) nuevo[nro][mes] = q;
+              }
+            }
+            ideal = nuevo;
+            dl.querySelector('#mEstadoCsv').textContent = `Planilla leída: ${Object.keys(nuevo).length} ítems.`;
+            dl.querySelector('.err-dlg').textContent = '';
+          } catch (err) { ideal = null; dl.querySelector('#mEstadoCsv').textContent = ''; dl.querySelector('.err-dlg').textContent = err.message; }
+        };
+      } });
+    if (!r || r.id !== 'ok') return;
+    try { const m = await api('POST', `/obras/${f.id}/modificaciones`, r.valor); toast(m.estado === 'pendiente' ? 'Modificación cargada: espera la autorización' : 'Ampliación de plazo aplicada'); await vistaObra(); }
+    catch (err) { mensaje($('#modMsg'), err.message, false); }
   };
 }
 

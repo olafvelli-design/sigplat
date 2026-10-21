@@ -53,10 +53,13 @@ PERMISOS = {
     # Modo obra (simulación de SIGO y SIGUE). Ver MODO_OBRA.md y app/obra.py.
     'ver_obras': {'inspector', 'autoridad', 'administrativo', 'administrador', 'contratista'},
     'medir': {'inspector'},
-    'emitir_certificado': {'administrativo'},
+    'emitir_certificado': {'inspector'},  # el inspector mide y certifica; otra persona (la autoridad) autoriza
     'autorizar_certificado': {'autoridad'},
-    'gestionar_certificado': {'administrativo'},
+    'anular_certificado': {'inspector', 'administrativo'},
+    'asignar_expediente': {'administrativo'},
     'plazo_cert_vencida': {'administrativo', 'autoridad'},
+    'cargar_modificacion': {'administrativo'},
+    'autorizar_modificacion': {'autoridad'},
     'emitir_os': {'inspector'},
     'responder_os': {'contratista'},
     'cerrar_os': {'inspector'},

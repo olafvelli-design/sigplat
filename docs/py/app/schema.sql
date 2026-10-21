@@ -182,13 +182,34 @@ CREATE TABLE IF NOT EXISTS items_obra (
     UNIQUE (obra_id, nro)
 );
 
--- Lo que el contratista se comprometió a hacer cada mes (cantidad de ese mes), base de la curva ideal.
+-- Versiones de la curva de avance ideal: la Principal y una más por cada modificación
+-- (MCI = modificación de curva ideal, AP = ampliación de plazo). La vigente es la última autorizada.
+CREATE TABLE IF NOT EXISTS curvas_ideal (
+    id             INTEGER PRIMARY KEY,
+    obra_id        INTEGER NOT NULL REFERENCES obras(id),
+    nombre         TEXT NOT NULL,                        -- 'Principal', 'MCI-1', 'AmpP-1'
+    tipo           TEXT NOT NULL CHECK (tipo IN ('principal','MCI','AP')),
+    numero         INTEGER NOT NULL DEFAULT 0,
+    estado         TEXT NOT NULL CHECK (estado IN ('pendiente','autorizada')),
+    tramite        TEXT,
+    instrumento    TEXT,                                 -- instrumento legal que avala la modificación
+    dias           INTEGER,                              -- días que suma una ampliación de plazo
+    observaciones  TEXT,
+    creada_por     INTEGER REFERENCES usuarios(id),
+    creada_at      TEXT NOT NULL,
+    autorizada_por INTEGER REFERENCES usuarios(id),
+    autorizada_at  TEXT,
+    UNIQUE (obra_id, nombre)
+);
+
+-- Lo que el contratista se comprometió a hacer cada mes (cantidad de ese mes), por versión de la curva.
 CREATE TABLE IF NOT EXISTS avance_ideal (
     id       INTEGER PRIMARY KEY,
+    curva_id INTEGER NOT NULL REFERENCES curvas_ideal(id),
     item_id  INTEGER NOT NULL REFERENCES items_obra(id),
     mes      TEXT NOT NULL,                              -- 'AAAA-MM'
     cantidad REAL NOT NULL,
-    UNIQUE (item_id, mes)
+    UNIQUE (curva_id, item_id, mes)
 );
 
 CREATE TABLE IF NOT EXISTS computos (
