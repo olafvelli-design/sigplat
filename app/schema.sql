@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
     nombre        TEXT NOT NULL,
     login         TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
-    rol           TEXT NOT NULL CHECK (rol IN ('inspector','responsable','autoridad','administrador','vecino')),
+    rol           TEXT NOT NULL CHECK (rol IN ('inspector','responsable','autoridad','administrador','vecino','contratista','administrativo')),
     activo        INTEGER NOT NULL DEFAULT 1
 );
 
@@ -146,3 +146,198 @@ CREATE TRIGGER IF NOT EXISTS evidencias_no_delete BEFORE DELETE ON evidencias
 BEGIN SELECT RAISE(ABORT, 'las evidencias no se eliminan'); END;
 CREATE TRIGGER IF NOT EXISTS avances_no_delete BEFORE DELETE ON avances
 BEGIN SELECT RAISE(ABORT, 'los avances declarados no se eliminan'); END;
+
+-- =====================================================================================================
+-- Modo obra: simulación de SIGO (contrato y dinero) y SIGUE (campo). Ver MODO_OBRA.md.
+-- Dinero en centavos enteros. Las cantidades de avance son del MES, no acumuladas.
+-- =====================================================================================================
+CREATE TABLE IF NOT EXISTS obras (
+    id                   INTEGER PRIMARY KEY,
+    ente_id              INTEGER NOT NULL REFERENCES entes(id),
+    denominacion         TEXT NOT NULL,
+    estado               TEXT NOT NULL CHECK (estado IN ('preadjudicada','adjudicada','en_ejecucion','finalizada')),
+    contratista          TEXT NOT NULL,
+    contratista_id       INTEGER REFERENCES usuarios(id),
+    inspector_id         INTEGER REFERENCES usuarios(id),
+    fecha_replanteo      TEXT NOT NULL,
+    plazo_dias           INTEGER NOT NULL CHECK (plazo_dias > 0),
+    anticipo_pct         REAL NOT NULL DEFAULT 0,
+    fondo_reparo_pct     REAL NOT NULL DEFAULT 5,
+    fondo_inspeccion_pct REAL NOT NULL DEFAULT 0,       -- 0 = "NO contiene fondo de inspección"
+    plazo_venc_cert_dias INTEGER NOT NULL DEFAULT 30,
+    lat                  REAL,
+    lon                  REAL,
+    curva_cerrada        INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS items_obra (
+    id                INTEGER PRIMARY KEY,
+    obra_id           INTEGER NOT NULL REFERENCES obras(id),
+    nro               INTEGER NOT NULL,
+    descripcion       TEXT NOT NULL,
+    unidad            TEXT,
+    cantidad_oferta   REAL NOT NULL DEFAULT 0,
+    precio_oferta_cent INTEGER NOT NULL DEFAULT 0,
+    es_titulo         INTEGER NOT NULL DEFAULT 0,        -- un rubro que agrupa ítems: sin unidad, cantidad ni precio
+    UNIQUE (obra_id, nro)
+);
+
+-- Lo que el contratista se comprometió a hacer cada mes (cantidad de ese mes), base de la curva ideal.
+CREATE TABLE IF NOT EXISTS avance_ideal (
+    id       INTEGER PRIMARY KEY,
+    item_id  INTEGER NOT NULL REFERENCES items_obra(id),
+    mes      TEXT NOT NULL,                              -- 'AAAA-MM'
+    cantidad REAL NOT NULL,
+    UNIQUE (item_id, mes)
+);
+
+CREATE TABLE IF NOT EXISTS computos (
+    id              INTEGER PRIMARY KEY,
+    obra_id         INTEGER NOT NULL REFERENCES obras(id),
+    mes             TEXT NOT NULL,
+    estado          TEXT NOT NULL CHECK (estado IN ('borrador','presentado','eliminado')),
+    personal_afectado INTEGER,
+    es_final        INTEGER NOT NULL DEFAULT 0,
+    observaciones   TEXT,
+    creado_por      INTEGER NOT NULL REFERENCES usuarios(id),
+    creado_at       TEXT NOT NULL,
+    presentado_por  INTEGER REFERENCES usuarios(id),
+    presentado_at   TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS computos_un_mes ON computos(obra_id, mes) WHERE estado != 'eliminado';
+
+CREATE TABLE IF NOT EXISTS computo_items (
+    id          INTEGER PRIMARY KEY,
+    computo_id  INTEGER NOT NULL REFERENCES computos(id),
+    item_id     INTEGER NOT NULL REFERENCES items_obra(id),
+    cantidad    REAL NOT NULL DEFAULT 0,
+    UNIQUE (computo_id, item_id)
+);
+
+-- Habilita cargar cómputos con la obra vencida (período de intimación).
+CREATE TABLE IF NOT EXISTS plazos_cert_vencida (
+    id          INTEGER PRIMARY KEY,
+    obra_id     INTEGER NOT NULL REFERENCES obras(id),
+    desde       TEXT NOT NULL,
+    dias        INTEGER NOT NULL CHECK (dias > 0),
+    creado_por  INTEGER NOT NULL REFERENCES usuarios(id),
+    creado_at   TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS certificados (
+    id                 INTEGER PRIMARY KEY,
+    obra_id            INTEGER NOT NULL REFERENCES obras(id),
+    ente_id            INTEGER NOT NULL REFERENCES entes(id),
+    numero             INTEGER NOT NULL,
+    tipo               TEXT NOT NULL CHECK (tipo IN ('parcial','final')),
+    computo_id         INTEGER NOT NULL REFERENCES computos(id),
+    estado             TEXT NOT NULL CHECK (estado IN ('pendiente','autorizado','anulado')),
+    monto_cent         INTEGER NOT NULL,                  -- importe del mes
+    liquidacion_json   TEXT NOT NULL,
+    expediente_externo TEXT,
+    observaciones      TEXT,
+    emitido_por        INTEGER NOT NULL REFERENCES usuarios(id),
+    emitido_at         TEXT NOT NULL,
+    fecha_autorizacion TEXT,
+    autorizado_por     INTEGER REFERENCES usuarios(id),
+    autorizado_at      TEXT,
+    vence_at           TEXT,
+    anulado_por        INTEGER REFERENCES usuarios(id),
+    anulado_at         TEXT,
+    motivo_anulacion   TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS certificados_numero ON certificados(obra_id, numero) WHERE estado != 'anulado';
+
+-- Libro de obra (SIGUE): órdenes de servicio correlativas, que no se editan ni se borran.
+CREATE TABLE IF NOT EXISTS ordenes_servicio (
+    id            INTEGER PRIMARY KEY,
+    obra_id       INTEGER NOT NULL REFERENCES obras(id),
+    ente_id       INTEGER NOT NULL REFERENCES entes(id),
+    numero        INTEGER NOT NULL,
+    fecha         TEXT NOT NULL,
+    asunto        TEXT NOT NULL,
+    texto         TEXT NOT NULL,
+    emitida_por   INTEGER NOT NULL REFERENCES usuarios(id),
+    emitida_at    TEXT NOT NULL,
+    estado        TEXT NOT NULL CHECK (estado IN ('emitida','respondida','cerrada')),
+    respuesta     TEXT,
+    respondida_por INTEGER REFERENCES usuarios(id),
+    respondida_at TEXT,
+    cerrada_por   INTEGER REFERENCES usuarios(id),
+    cerrada_at    TEXT,
+    cierre_obs    TEXT,
+    UNIQUE (obra_id, numero)
+);
+
+CREATE TABLE IF NOT EXISTS documentos_obra (
+    id               INTEGER PRIMARY KEY,
+    obra_id          INTEGER NOT NULL REFERENCES obras(id),
+    ente_id          INTEGER NOT NULL REFERENCES entes(id),
+    tipo             TEXT NOT NULL CHECK (tipo IN ('plano','material','dosificacion','ensayo','calibracion','planilla','otro')),
+    titulo           TEXT NOT NULL,
+    clave            TEXT,                                -- por ejemplo H21 en una dosificación
+    datos_json       TEXT NOT NULL DEFAULT '{}',
+    etiquetas        TEXT NOT NULL DEFAULT '[]',
+    sha256           TEXT NOT NULL,
+    ruta             TEXT NOT NULL,
+    mime             TEXT NOT NULL,
+    fecha_emision    TEXT,
+    fecha_vencimiento TEXT,
+    version          INTEGER NOT NULL DEFAULT 1,
+    reemplaza_a      INTEGER REFERENCES documentos_obra(id),
+    subido_por       INTEGER NOT NULL REFERENCES usuarios(id),
+    subido_at        TEXT NOT NULL,
+    revision_estado  TEXT NOT NULL DEFAULT 'pendiente' CHECK (revision_estado IN ('pendiente','aprobado','observado')),
+    revisado_por     INTEGER REFERENCES usuarios(id),
+    revisado_at      TEXT
+);
+
+CREATE TABLE IF NOT EXISTS observaciones_documento (
+    id            INTEGER PRIMARY KEY,
+    documento_id  INTEGER NOT NULL REFERENCES documentos_obra(id),
+    texto         TEXT NOT NULL,
+    autor_id      INTEGER NOT NULL REFERENCES usuarios(id),
+    creada_at     TEXT NOT NULL,
+    resuelta      INTEGER NOT NULL DEFAULT 0,
+    resuelta_por  INTEGER REFERENCES usuarios(id),
+    resuelta_at   TEXT
+);
+
+CREATE TABLE IF NOT EXISTS recepciones_hormigon (
+    id               INTEGER PRIMARY KEY,
+    obra_id          INTEGER NOT NULL REFERENCES obras(id),
+    ente_id          INTEGER NOT NULL REFERENCES entes(id),
+    fecha            TEXT NOT NULL,
+    hora             TEXT NOT NULL,
+    tipo             TEXT NOT NULL,
+    volumen_m3       REAL NOT NULL,
+    elemento         TEXT NOT NULL,
+    probeta          TEXT,
+    remito           TEXT NOT NULL,
+    temp_ambiente    REAL,
+    temp_hormigon    REAL,
+    asentamiento_cm  REAL,
+    cargada_por      INTEGER NOT NULL REFERENCES usuarios(id),
+    cargada_at       TEXT NOT NULL,
+    banderas         TEXT NOT NULL DEFAULT '[]',
+    revision_estado  TEXT NOT NULL DEFAULT 'pendiente' CHECK (revision_estado IN ('pendiente','validada','observada')),
+    revisada_por     INTEGER REFERENCES usuarios(id),
+    revisada_at      TEXT,
+    observacion      TEXT
+);
+
+-- Nada del Modo obra se borra: se anula con estado y auditoría.
+CREATE TRIGGER IF NOT EXISTS computos_no_delete BEFORE DELETE ON computos
+BEGIN SELECT RAISE(ABORT, 'los cómputos no se borran: se eliminan con estado'); END;
+CREATE TRIGGER IF NOT EXISTS certificados_no_delete BEFORE DELETE ON certificados
+BEGIN SELECT RAISE(ABORT, 'los certificados no se borran: se anulan con estado'); END;
+CREATE TRIGGER IF NOT EXISTS ordenes_no_delete BEFORE DELETE ON ordenes_servicio
+BEGIN SELECT RAISE(ABORT, 'las órdenes de servicio no se borran'); END;
+CREATE TRIGGER IF NOT EXISTS ordenes_inmutables BEFORE UPDATE OF obra_id, numero, fecha, asunto, texto, emitida_por, emitida_at ON ordenes_servicio
+BEGIN SELECT RAISE(ABORT, 'las órdenes de servicio no se editan'); END;
+CREATE TRIGGER IF NOT EXISTS documentos_no_delete BEFORE DELETE ON documentos_obra
+BEGIN SELECT RAISE(ABORT, 'los documentos no se borran: se reemplazan por una versión nueva'); END;
+CREATE TRIGGER IF NOT EXISTS observaciones_no_delete BEFORE DELETE ON observaciones_documento
+BEGIN SELECT RAISE(ABORT, 'las observaciones no se borran'); END;
+CREATE TRIGGER IF NOT EXISTS recepciones_no_delete BEFORE DELETE ON recepciones_hormigon
+BEGIN SELECT RAISE(ABORT, 'las recepciones no se borran'); END;

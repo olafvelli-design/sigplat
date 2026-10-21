@@ -50,6 +50,20 @@ PERMISOS = {
     'ver_interno': set(ROLES),
     'ver_incidencias': {'inspector', 'autoridad', 'administrador'},
     'ver_tablero': {'inspector', 'autoridad', 'administrador'},
+    # Modo obra (simulación de SIGO y SIGUE). Ver MODO_OBRA.md y app/obra.py.
+    'ver_obras': {'inspector', 'autoridad', 'administrativo', 'administrador', 'contratista'},
+    'medir': {'inspector'},
+    'emitir_certificado': {'administrativo'},
+    'autorizar_certificado': {'autoridad'},
+    'gestionar_certificado': {'administrativo'},
+    'plazo_cert_vencida': {'administrativo', 'autoridad'},
+    'emitir_os': {'inspector'},
+    'responder_os': {'contratista'},
+    'cerrar_os': {'inspector'},
+    'subir_documento': {'contratista', 'inspector'},
+    'revisar_documento': {'inspector'},
+    'cargar_recepcion': {'contratista', 'inspector'},
+    'revisar_recepcion': {'inspector'},
 }
 # Quién puede ejecutar cada transición de intervención (además, el responsable debe estar asignado).
 TRANSICIONES_INT = {
@@ -946,9 +960,15 @@ RUTAS = [
 ]
 
 
+def _rutas():
+    """Rutas del circuito de reportes más las del Modo obra (app/obra.py, que importa este módulo)."""
+    import obra  # import tardío: obra.py importa core
+    return RUTAS + obra.RUTAS
+
+
 def despachar(c, metodo, ruta, q, body, uid, token=None):
     """Devuelve (status, payload). uid y token los resuelve el servidor desde la cookie de sesión."""
-    for m, patron, fn in RUTAS:
+    for m, patron, fn in _rutas():
         mt = re.match(patron, ruta)
         if mt and m == metodo:
             ctx = {'q': q, 'body': body, 'uid': uid, 'token': token}

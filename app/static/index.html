@@ -184,6 +184,27 @@
   #dlgFoto img { display:block; width:100%; max-height:84vh; object-fit:contain; }
   #dlgFoto button { position:absolute; top:8px; right:8px; }
 
+  /* Modo obra (simulación de SIGO y SIGUE) */
+  .sim { background: var(--suave); border:1px dashed var(--acc); border-radius:4px; padding:6px 10px; font-size:13px; margin:8px 0; }
+  .modulos { display:flex; flex-wrap:wrap; gap:10px 28px; margin:12px 0; }
+  .modulo .tit { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.3px; color: var(--muted); }
+  .modulo .chips { margin:4px 0; }
+  .kpis-obra { display:grid; grid-template-columns: repeat(auto-fill, minmax(190px,1fr)); gap:10px; margin:10px 0; }
+  .kpis-obra .card { margin:0; border-top-width:1px; border-left:4px solid var(--acc); padding:10px 12px; }
+  .kpis-obra .v { font-size:20px; font-weight:700; color: var(--acc); }
+  .kpis-obra .l { font-size:13px; color: var(--muted); }
+  .grafico { width:100%; height:auto; display:block; }
+  .tabla-scroll { overflow-x:auto; }
+  .num { text-align:right; font-variant-numeric: tabular-nums; white-space:nowrap; }
+  .tit-rubro { font-weight:700; background: var(--thead); padding:6px 10px; margin-top:12px; border-radius:3px; }
+  .med { border:1px solid var(--line); border-radius:4px; padding:10px 12px; margin:8px 0; }
+  .med.alerta { border-color: var(--warn); border-width:2px; }
+  .med input { max-width:220px; }
+  .med .prev { font-size:13px; margin-top:4px; }
+  .barra-fija { position:sticky; bottom:0; background: var(--card); border-top:2px solid var(--acc); padding:10px 12px; display:flex; gap:12px; flex-wrap:wrap; align-items:center; z-index:5; margin:10px -14px -14px; }
+  .barra-fija b { color: var(--acc); }
+  .item-obra { display:grid; grid-template-columns: 2.4em 1fr; gap:2px 8px; padding:8px 0; border-bottom:1px solid var(--line); }
+  .item-obra .n { color: var(--muted); font-weight:700; }
   .atrib { font-size:12px; color: var(--muted); }
   @media (max-width: 760px) {
     main { padding: 12px 12px 48px; }
@@ -248,7 +269,8 @@ const ESTADO_TXT = { recibida:'Recibida', confirmada:'Confirmada', descartada:'D
   planificada:'Planificada', en_ejecucion:'En ejecución', finalizada_declarada:'Finalizada (declarada)', validada:'Validada', cerrada:'Cerrada' };
 const GRAV_TXT = { 1:'baja', 2:'media', 3:'alta' };
 const TIPO_EV = { avance:'Avance', cierre:'Cierre', inspeccion:'Inspección', foto_reporte:'Reporte' };
-const ROL_TXT = { inspector:'Inspector', responsable:'Responsable', autoridad:'Autoridad', administrador:'Administrador', vecino:'Vecino' };
+const ROL_TXT = { inspector:'Inspector', responsable:'Responsable', autoridad:'Autoridad', administrador:'Administrador', vecino:'Vecino',
+  contratista:'Contratista', administrativo:'Administrativo' };
 const FLAG_TXT = {
   sin_fecha_de_captura: 'No tiene fecha de captura declarada',
   fecha_captura_posterior_a_recepcion: 'La fecha de captura es posterior a la recepción',
@@ -273,7 +295,8 @@ const infoCat = nombre => { const x = INFO_CAT.find(([re]) => re.test(nombre)); 
 const nuevoBorrador = () => ({ categoria: null, punto: null, archivo: null, desc: '', enviando: false, hecho: null });
 const S = { ente: null, entes: [], usuarios: [], usuario: null, config: null, tab: 'ciudadano', mapas: [], mini: null, pos: null,
   rep: nuevoBorrador(), cod: '', inc: null, trabajo: null, ordenIds: [], items: {}, refrescar: null, ficha: null,
-  trab: { orden: 'antiguas' }, band: { estado: 'recibida', categoria: '', q: '', orden: 'antiguas' }, fotos: new Map(), dirSeq: 0 };
+  trab: { orden: 'antiguas' }, band: { estado: 'recibida', categoria: '', q: '', orden: 'antiguas' }, fotos: new Map(), dirSeq: 0,
+  obra: { id: null, tab: null } };
 const $ = sel => document.querySelector(sel);
 const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 const fmt = iso => iso ? new Date(iso).toLocaleString('es-AR', {dateStyle:'short', timeStyle:'short'}) : '—';
@@ -521,11 +544,13 @@ function tabsDisponibles() {
   if (!rol) return publicas;
   if (rol === 'vecino') return [...publicas, ['mis_reportes', 'Mis reportes']];
   if (rol === 'responsable') return [['intervenciones', 'Mis intervenciones'], ...publicas];
-  const t = rol === 'administrador' ? [['mapa', 'Tablero y mapa'], ['incidencias', 'Bandeja'], ['intervenciones', 'Intervenciones']]
-    : [['trabajo', 'Mi trabajo'], ['incidencias', 'Bandeja'], ['intervenciones', 'Intervenciones'], ['mapa', 'Tablero y mapa']];
+  if (rol === 'contratista' || rol === 'administrativo') return [['obras', 'Obras'], ...publicas];
+  const t = rol === 'administrador' ? [['mapa', 'Tablero y mapa'], ['incidencias', 'Bandeja'], ['intervenciones', 'Intervenciones'], ['obras', 'Obras']]
+    : [['trabajo', 'Mi trabajo'], ['obras', 'Obras'], ['incidencias', 'Bandeja'], ['intervenciones', 'Intervenciones'], ['mapa', 'Tablero y mapa']];
   return [...t, ...publicas];
 }
-const aterrizaje = rol => ({ inspector: 'trabajo', autoridad: 'trabajo', responsable: 'intervenciones', vecino: 'mis_reportes', administrador: 'mapa' }[rol] || 'ciudadano');
+const aterrizaje = rol => ({ inspector: 'trabajo', autoridad: 'trabajo', responsable: 'intervenciones', vecino: 'mis_reportes', administrador: 'mapa',
+  contratista: 'obras', administrativo: 'obras' }[rol] || 'ciudadano');
 
 function pintarTabs() {
   const tabs = tabsDisponibles();
@@ -599,7 +624,7 @@ async function iniciarSesion(ev) {
 }
 async function cerrarSesion() {
   await api('POST', '/logout', {});
-  S.tab = 'ciudadano'; S.rep = nuevoBorrador();
+  S.tab = 'ciudadano'; S.rep = nuevoBorrador(); S.obra = { id: null, tab: null };
   await cargarSesion();
 }
 
@@ -609,7 +634,7 @@ function render() {
   cerrarDetalle();
   S.refrescar = null;
   const vista = { ciudadano: vistaCiudadano, seguimiento: vistaSeguimiento, mis_reportes: vistaMisReportes, trabajo: vistaTrabajo, mapa: vistaMapa,
-                  incidencias: vistaIncidencias, intervenciones: vistaIntervenciones }[S.tab];
+                  incidencias: vistaIncidencias, intervenciones: vistaIntervenciones, obras: vistaObras }[S.tab];
   const r = vista();
   if (r && r.catch) r.catch(err => mensaje($('#vista'), err.message, false));
 }
@@ -1407,6 +1432,318 @@ async function cargarFicha(id, silencioso) {
       } catch (err) { mensaje($('#evMsg'), err.message, false); b.disabled = false; b.textContent = 'Subir foto'; }
     };
   }
+}
+
+// ---------- MODO OBRA (simulación de SIGO y SIGUE) ----------
+const pesos = c => (c === null || c === undefined) ? '—' : '$ ' + (c / 100).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const num = (x, d = 3) => (x === null || x === undefined) ? '—' : Number(x).toLocaleString('es-AR', { maximumFractionDigits: d });
+const pctTxt = x => (x === null || x === undefined) ? '—' : Number(x).toLocaleString('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 2 }) + ' %';
+const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+const mesTxt = m => MESES[+m.slice(5, 7) - 1] + ' ' + m.slice(0, 4);
+const COLOR_TIPO = { ok: '#16a34a', aviso: '#d97706', malo: '#b91c1c', neutro: '#6b7280', info: '#2563eb' };
+const etiqueta = (txt, tipo = 'neutro') => `<span class="estado"><i class="dot" style="background:${COLOR_TIPO[tipo]}"></i>${esc(txt)}</span>`;
+const AVISO_SIM = '<div class="sim" role="note"><b>Simulación</b> con datos ficticios. Sin validez legal. No está conectada a SIGO ni a SIGUE.</div>';
+const ESTADO_OBRA = { preadjudicada: 'Preadjudicada', adjudicada: 'Adjudicada', en_ejecucion: 'En ejecución', finalizada: 'Finalizada' };
+const ESTADO_COMPUTO = { borrador: ['Borrador', 'aviso'], presentado: ['Presentado', 'info'], eliminado: ['Eliminado', 'neutro'] };
+
+// "10,5", "10.5" y "1.000,5" son válidos; vacío vale 0
+const numEntrada = s => {
+  let t = String(s).trim();
+  if (!t) return 0;
+  if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');
+  const n = Number(t);
+  return Number.isFinite(n) ? n : NaN;
+};
+function descargarCSV(nombre, filas) {
+  const celda = v => /[;"\n]/.test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : String(v);
+  const texto = '﻿' + filas.map(f => f.map(celda).join(';')).join('\r\n');
+  const url = URL.createObjectURL(new Blob([texto], { type: 'text/csv;charset=utf-8' }));
+  const a = document.createElement('a');
+  a.href = url; a.download = nombre; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function leerCSV(texto) {
+  texto = texto.replace(/^﻿/, '');
+  const primera = texto.split(/\r?\n/)[0] || '';
+  const sep = (primera.match(/;/g) || []).length >= (primera.match(/,/g) || []).length ? ';' : ',';
+  const filas = [];
+  let fila = [], campo = '', entre = false;
+  const cerrar = () => { fila.push(campo); campo = ''; if (fila.some(x => x.trim() !== '')) filas.push(fila); fila = []; };
+  for (let i = 0; i < texto.length; i++) {
+    const ch = texto[i];
+    if (entre) { if (ch === '"' && texto[i + 1] === '"') { campo += '"'; i++; } else if (ch === '"') entre = false; else campo += ch; }
+    else if (ch === '"') entre = true;
+    else if (ch === sep) { fila.push(campo); campo = ''; }
+    else if (ch === '\n' || ch === '\r') { if (ch === '\r' && texto[i + 1] === '\n') i++; cerrar(); }
+    else campo += ch;
+  }
+  cerrar();
+  return filas;
+}
+
+// gráfico SVG de la curva: porcentaje acumulado del contrato, comprometido (ideal) contra certificado (real)
+function graficoCurva(cv, hoyMes) {
+  const P = cv.puntos, W = 640, H = 270, L = 40, R = 14, T = 16, B = 36;
+  if (!P.length) return '<p class="small">Todavía no hay curva.</p>';
+  const x = i => L + (P.length <= 1 ? 0 : i * (W - L - R) / (P.length - 1));
+  const y = v => T + (100 - v) * (H - T - B) / 100;
+  const linea = (pts, clave) => pts.map(p => `${x(P.indexOf(p)).toFixed(1)},${y(p[clave]).toFixed(1)}`).join(' ');
+  const reales = P.filter(p => p.real_acum_pct !== null);
+  const ultReal = reales[reales.length - 1];
+  const resumen = `Curva de avance acumulado. Comprometido al último mes: ${pctTxt(P[P.length - 1].ideal_acum_pct)}.` +
+    (ultReal ? ` Certificado hasta ${mesTxt(ultReal.mes)}: ${pctTxt(ultReal.real_acum_pct)}.` : ' Todavía no hay certificados.');
+  const hoyI = P.findIndex(p => p.mes === hoyMes);
+  return `<svg class="grafico" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(resumen)}">
+    ${[0, 25, 50, 75, 100].map(v => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-width="1"/><text x="${L - 6}" y="${y(v) + 4}" font-size="11" text-anchor="end" fill="var(--muted)">${v} %</text>`).join('')}
+    ${P.map((p, i) => `<text x="${x(i)}" y="${H - 14}" font-size="10" text-anchor="middle" fill="var(--muted)">${MESES[+p.mes.slice(5, 7) - 1]}</text>`).join('')}
+    ${hoyI >= 0 ? `<line x1="${x(hoyI)}" x2="${x(hoyI)}" y1="${T}" y2="${H - B}" stroke="var(--warn)" stroke-dasharray="3 3"/><text x="${x(hoyI)}" y="${T - 4}" font-size="10" text-anchor="middle" fill="var(--warn)">hoy</text>` : ''}
+    <polyline points="${linea(P, 'ideal_acum_pct')}" fill="none" stroke="var(--muted)" stroke-width="2" stroke-dasharray="6 4"/>
+    ${reales.length ? `<polyline points="${linea(reales, 'real_acum_pct')}" fill="none" stroke="var(--acc)" stroke-width="3"/>${reales.map(p => `<circle cx="${x(P.indexOf(p))}" cy="${y(p.real_acum_pct)}" r="4" fill="var(--acc)"/>`).join('')}` : ''}
+    <line x1="${L + 12}" x2="${L + 36}" y1="${T + 10}" y2="${T + 10}" stroke="var(--muted)" stroke-width="2" stroke-dasharray="6 4"/><text x="${L + 42}" y="${T + 14}" font-size="11" fill="var(--fg)">Comprometido</text>
+    <line x1="${L + 12}" x2="${L + 36}" y1="${T + 28}" y2="${T + 28}" stroke="var(--acc)" stroke-width="3"/><text x="${L + 42}" y="${T + 32}" font-size="11" fill="var(--fg)">Certificado</text>
+  </svg>`;
+}
+
+async function vistaObras() {
+  if (S.obra.id) return vistaObra();
+  $('#vista').innerHTML = `<section class="card" aria-labelledby="hObras"><h2 id="hObras">Obras</h2>${AVISO_SIM}
+    <p class="small">Así trabajaría cada rol con SIGO (contrato y dinero) y SIGUE (campo).</p>
+    <ul id="listaObras" class="lista"><li class="small">Cargando…</li></ul></section>`;
+  const lista = await api('GET', '/obras');
+  $('#listaObras').innerHTML = lista.length ? lista.map(o => {
+    const r = o.resumen;
+    return `<li><button type="button" class="item" data-obra="${o.id}">
+      <span><b>${esc(o.denominacion)}</b></span>
+      <span class="meta">${esc(o.contratista)} · ${esc(ESTADO_OBRA[o.estado])}</span>
+      <span class="meta">Comprometido a la fecha ${pctTxt(r.avance_ideal_pct)} · Certificado ${pctTxt(r.avance_certificado_pct)} · ${r.vencida ? 'Plazo vencido' : 'Quedan ' + r.dias_restantes + ' días'}</span>
+      ${r.mes_a_medir && rolEn('inspector') ? `<span class="meta"><b>Para medir: ${mesTxt(r.mes_a_medir)}</b></span>` : ''}</button></li>`;
+  }).join('') : '<li class="vacio">No hay obras asignadas a tu usuario.</li>';
+  $('#listaObras').onclick = e => { const b = e.target.closest('[data-obra]'); if (b) { S.obra = { id: +b.dataset.obra, tab: null }; vistaObras(); } };
+}
+
+// Pestañas de una obra, agrupadas según el sistema al que pertenecen en esta simulación
+function gruposObra() {
+  return [
+    { grupo: 'SIGO · Contrato y certificación', tabs: [['resumen', 'Resumen'], ['computos', 'Cómputos']] },
+    { grupo: 'SIGUE · Campo', tabs: [['medicion', 'Medición del mes']] },
+  ];
+}
+const tabInicialObra = () => rolEn('inspector') ? 'medicion' : 'resumen';
+
+async function vistaObra() {
+  const f = await api('GET', '/obras/' + S.obra.id);
+  S.obra.ficha = f;
+  const grupos = gruposObra();
+  if (!S.obra.tab || !grupos.some(g => g.tabs.some(t => t[0] === S.obra.tab))) S.obra.tab = tabInicialObra(f);
+  $('#vista').innerHTML = `<div class="row"><button type="button" class="sec" id="obraVolver">← Todas las obras</button></div>
+    <section class="card"><h2>${esc(f.denominacion)}</h2>${AVISO_SIM}
+      <p class="small">${esc(f.contratista)} · Replanteo ${dia(f.fecha_replanteo)} · Plazo ${f.plazo_dias} días · Inspector: ${f.inspector ? esc(f.inspector.nombre) : 'sin asignar'}</p>
+      <div class="modulos">${grupos.map(g => `<div class="modulo"><div class="tit">${esc(g.grupo)}</div>
+        <div class="chips" role="group" aria-label="${esc(g.grupo)}">${g.tabs.map(([k, l]) => `<button type="button" class="chip" data-otab="${k}" aria-pressed="${S.obra.tab === k}">${esc(l)}</button>`).join('')}</div></div>`).join('')}</div>
+      <div id="obraCuerpo" aria-live="polite"></div></section>`;
+  $('#obraVolver').onclick = () => { S.obra = { id: null, tab: null }; vistaObras(); };
+  document.querySelector('.modulos').onclick = e => { const b = e.target.closest('[data-otab]'); if (b) { S.obra.tab = b.dataset.otab; vistaObra(); } };
+  const pintor = { resumen: tabResumen, computos: tabComputos, medicion: tabMedicion }[S.obra.tab];
+  await pintor(f);
+}
+
+async function tabResumen(f) {
+  const r = f.resumen, cv = f.curva, d = cv.desvio;
+  $('#obraCuerpo').innerHTML = `
+    <div class="kpis-obra">
+      <div class="card"><div class="l">Monto de contrato</div><div class="v">${pesos(r.monto_contrato_cent)}</div></div>
+      <div class="card"><div class="l">Plazo</div><div class="v">${r.vencida ? 'Vencido' : r.dias_restantes + ' días'}</div>
+        <div class="l">Fin: ${dia(r.fecha_fin)}${r.vencida ? (r.plazo_cert_vencida_activo ? ' · con plazo de certificación' : ' · sin plazo de certificación') : ''}</div></div>
+      <div class="card"><div class="l">Comprometido a la fecha</div><div class="v">${pctTxt(r.avance_ideal_pct)}</div></div>
+      <div class="card"><div class="l">Medido (cómputos presentados)</div><div class="v">${pctTxt(r.avance_medido_pct)}</div></div>
+      <div class="card"><div class="l">Certificado</div><div class="v">${pctTxt(r.avance_certificado_pct)}</div></div>
+      <div class="card"><div class="l">Desvío (certificado − comprometido)</div><div class="v">${d.valor === null ? '—' : (d.valor > 0 ? '+' : '') + num(d.valor, 2) + ' pp'}</div>
+        <div class="l">n = ${d.n} · ${esc(d.nota)}</div></div>
+    </div>
+    <h3>Curva de avance: comprometido contra certificado</h3>
+    ${graficoCurva(cv, new Date().toISOString().slice(0, 7))}
+    <details><summary>Ver los números de la curva</summary><div class="tabla-scroll"><table>
+      <thead><tr><th>Mes</th><th class="num">Comprometido acum.</th><th class="num">%</th><th class="num">Certificado acum.</th><th class="num">%</th><th class="num">Desvío (pp)</th></tr></thead>
+      <tbody>${cv.puntos.map(p => `<tr><td>${mesTxt(p.mes)}</td><td class="num">${pesos(p.ideal_acum_cent)}</td><td class="num">${pctTxt(p.ideal_acum_pct)}</td>
+        <td class="num">${pesos(p.real_acum_cent)}</td><td class="num">${pctTxt(p.real_acum_pct)}</td><td class="num">${p.desvio_pp === null ? '—' : num(p.desvio_pp, 2)}</td></tr>`).join('')}</tbody></table></div></details>
+    <h3>Contrato</h3>
+    <p class="small">Contratista: ${esc(f.contratista)}${f.representante ? ' · Representante: ' + esc(f.representante.nombre) : ''}<br>
+      Inspector asignado: ${f.inspector ? esc(f.inspector.nombre) : 'sin asignar'} · Replanteo: ${dia(f.fecha_replanteo)} · Plazo: ${f.plazo_dias} días<br>
+      Anticipo ${num(f.anticipo_pct, 2)} % · Fondo de reparo ${num(f.fondo_reparo_pct, 2)} % · ${f.fondo_inspeccion_pct > 0 ? 'Fondo de inspección ' + num(f.fondo_inspeccion_pct, 2) + ' %' : 'NO contiene fondo de inspección'}<br>
+      Los certificados vencen ${f.plazo_venc_cert_dias} días después de autorizados.</p>
+    <h3>Presupuesto por ítems</h3>
+    ${f.items.map(i => i.es_titulo ? `<div class="tit-rubro">${i.nro}. ${esc(i.descripcion)}</div>` :
+      `<div class="item-obra"><span class="n">${i.nro}</span><div><b>${esc(i.descripcion)}</b>
+        <div class="small">${num(i.cantidad_oferta)} ${esc(i.unidad)} × ${pesos(i.precio_oferta_cent)} = ${pesos(i.importe_oferta_cent)} · Medido hasta ahora: ${pctTxt(i.pct_medido)}</div></div></div>`).join('')}`;
+}
+
+function tablaComputo(k) {
+  return `<div class="tabla-scroll"><table><thead><tr><th>Ítem</th><th class="num">Contratado</th><th class="num">Anterior</th><th class="num">Presente</th>
+    <th class="num">Acumulado</th><th class="num">% acum.</th><th class="num">Importe presente</th></tr></thead><tbody>
+    ${k.items.map(i => i.es_titulo ? `<tr><td colspan="7"><b>${i.nro}. ${esc(i.descripcion)}</b></td></tr>` :
+      `<tr><td>${i.nro}. ${esc(i.descripcion)}</td><td class="num">${num(i.cantidad_oferta)} ${esc(i.unidad)}</td><td class="num">${num(i.anterior)}</td><td class="num">${num(i.presente)}</td>
+        <td class="num">${num(i.acumulada)}${i.supera_oferta ? ' ⚠️' : ''}</td><td class="num">${pctTxt(i.pct_acumulado)}</td><td class="num">${pesos(i.importe_presente_cent)}</td></tr>`).join('')}
+    <tr><td colspan="6"><b>Total del mes</b></td><td class="num"><b>${pesos(k.totales.importe_presente_cent)}</b></td></tr></tbody></table></div>`;
+}
+function csvComputo(k, f) {
+  const filas = [['nro', 'descripcion', 'unidad', 'cantidad_contratada', 'anterior', 'presente', 'acumulado', 'pct_acumulado', 'importe_presente']];
+  for (const i of k.items.filter(x => !x.es_titulo)) filas.push([i.nro, i.descripcion, i.unidad, i.cantidad_oferta, i.anterior, i.presente, i.acumulada, i.pct_acumulado, (i.importe_presente_cent / 100).toFixed(2)]);
+  descargarCSV(`computo-${k.mes}.csv`, filas);
+}
+
+async function tabComputos(f) {
+  const cont = $('#obraCuerpo');
+  cont.innerHTML = `<p class="small">Cómputo métrico registrado: el avance físico real de cada mes, ítem por ítem. Cada certificado parcial sale de un cómputo presentado.</p>
+    ${f.computos.length ? f.computos.map(k => `<div class="tarjeta"><div class="row"><b>${mesTxt(k.mes)}</b>${etiqueta(ESTADO_COMPUTO[k.estado][0], ESTADO_COMPUTO[k.estado][1])}
+      ${k.es_final ? etiqueta('Cómputo final', 'info') : ''}${k.certificado ? etiqueta('Certificado N° ' + k.certificado.numero, 'ok') : etiqueta('Sin certificado', 'neutro')}</div>
+      <div class="small">Importe del mes ${pesos(k.importe_mes_cent)} · Personal afectado: ${k.personal_afectado ?? '—'}</div>
+      <div class="row"><button type="button" class="sec" data-kver="${k.id}">Ver el detalle</button></div></div>`).join('') : '<p class="vacio small">Todavía no hay cómputos.</p>'}
+    <div id="detCom"></div>`;
+  cont.onclick = async e => {
+    const b = e.target.closest('[data-kver]');
+    if (!b) return;
+    const k = await api('GET', '/computos/' + b.dataset.kver);
+    $('#detCom').innerHTML = `<h3>Cómputo de ${mesTxt(k.mes)}</h3>${tablaComputo(k)}
+      <p class="small">Personal afectado: ${k.personal_afectado ?? '—'} · Avance acumulado ${pctTxt(k.totales.pct_avance_acumulado)} del contrato${k.observaciones ? ' · Observaciones: ' + esc(k.observaciones) : ''}</p>
+      <div class="row"><button type="button" class="sec" id="csvCom">Descargar cómputo (CSV)</button></div>`;
+    $('#csvCom').onclick = () => csvComputo(k, f);
+    $('#detCom').scrollIntoView({ block: 'start', behavior: 'smooth' });
+  };
+}
+
+// ---------- Medición del mes (campo) ----------
+async function tabMedicion(f) {
+  const cont = $('#obraCuerpo'), r = f.resumen;
+  const soyInspector = rolEn('inspector') && f.inspector && f.inspector.id === S.usuario.id;
+  if (!soyInspector) {
+    cont.innerHTML = `<p>La medición mensual la hace el inspector asignado a la obra${f.inspector ? ' (' + esc(f.inspector.nombre) + ')' : ''}. Podés ver los cómputos presentados en la pestaña "Cómputos".</p>`;
+    return;
+  }
+  if (r.computo_en_curso) return editorComputo(r.computo_en_curso);
+  const ult = f.computos[f.computos.length - 1];
+  let motivo = '';
+  if (f.estado !== 'en_ejecucion') motivo = 'La obra no está en ejecución.';
+  else if (ult && ult.es_final) motivo = 'La obra ya tiene su cómputo final.';
+  else if (ult && ult.estado === 'presentado' && !ult.certificado) motivo = `El cómputo de ${mesTxt(ult.mes)} ya fue presentado. Para abrir el siguiente tiene que estar generado el certificado de ese mes, que emite el administrativo.`;
+  else if (!r.mes_a_medir) motivo = 'Todavía no hay avance para medir: el mes siguiente no empezó.';
+  const vencida = r.vencida && !r.plazo_cert_vencida_activo;
+  cont.innerHTML = `<p>Acá cargás el avance real de la obra, mes a mes. <b>Cargá sólo lo que avanzó en el mes</b>, en cantidades: no el acumulado ni porcentajes.</p>
+    ${ult ? `<p class="small">Último cómputo: ${mesTxt(ult.mes)} (${ESTADO_COMPUTO[ult.estado][0].toLowerCase()}).</p>` : '<p class="small">Todavía no hay cómputos: el primero es el mes del replanteo.</p>'}
+    ${vencida ? `<div class="msg aviso" role="alert">La obra venció el ${dia(r.fecha_fin)}. Antes de cargar un cómputo hace falta un <b>plazo de certificación de obra vencida</b>, que registra el administrativo.</div>` : ''}
+    ${motivo ? `<div class="msg aviso" role="status">${esc(motivo)}</div>` : ''}
+    ${r.mes_a_medir && !motivo ? `<div class="row"><button type="button" class="big" id="abrirComputo" ${vencida ? 'disabled' : ''}>Abrir el cómputo de ${mesTxt(r.mes_a_medir)}</button></div>` : ''}
+    <div id="medMsg"></div>`;
+  if ($('#abrirComputo')) $('#abrirComputo').onclick = async () => {
+    try { const k = await api('POST', `/obras/${f.id}/computos`, {}); toast('Cómputo abierto'); await vistaObra(); }
+    catch (err) { mensaje($('#medMsg'), err.message, false); }
+  };
+}
+
+async function editorComputo(kid) {
+  const k = await api('GET', '/computos/' + kid), f = S.obra.ficha, cont = $('#obraCuerpo');
+  const ed = k.editable, items = k.items.filter(i => !i.es_titulo);
+  const filas = k.items.map(i => i.es_titulo ? `<div class="tit-rubro">${i.nro}. ${esc(i.descripcion)}</div>` :
+    `<div class="med" data-fila="${i.item_id}"><div><b>${i.nro}. ${esc(i.descripcion)}</b></div>
+      <div class="small">Contratado: ${num(i.cantidad_oferta)} ${esc(i.unidad)} · Hasta el mes anterior: ${num(i.anterior)} (${pctTxt(i.pct_anterior)})</div>
+      <label for="q${i.item_id}">Avance de ${mesTxt(k.mes)} (${esc(i.unidad)})</label>
+      <input id="q${i.item_id}" inputmode="decimal" autocomplete="off" placeholder="0" data-q="${i.item_id}" value="${i.presente ? String(i.presente).replace('.', ',') : ''}" ${ed ? '' : 'readonly'}>
+      <div class="prev" data-prev="${i.item_id}"></div></div>`).join('');
+  const [nombreEstado, tipoEstado] = ESTADO_COMPUTO[k.estado];
+  cont.innerHTML = `<div class="row"><h3 style="margin:0">Medición de ${mesTxt(k.mes)}</h3>${etiqueta(nombreEstado, tipoEstado)}${k.certificado ? etiqueta('Certificado N° ' + k.certificado.numero, 'ok') : ''}</div>
+    <p class="small">Cargá la cantidad que avanzó <b>sólo este mes</b>. El sistema calcula el acumulado, el porcentaje y los importes.${ed ? '' : ' Ya existe el certificado de este mes: no se puede modificar.'}</p>
+    ${ed ? `<div class="row"><button type="button" class="sec" id="csvBajar">⬇ Descargar planilla (CSV)</button><button type="button" class="sec" id="csvSubir">⬆ Subir planilla (CSV)</button>
+      <input type="file" id="csvArchivo" accept=".csv,text/csv" hidden></div><p class="small">La planilla es un CSV: el Excel real se exporta a CSV. Al subirla se completan los casilleros y vos revisás antes de guardar.</p>` : ''}
+    <div id="medMsg"></div>${filas}
+    <label for="personal">Personal afectado a la obra en el mes (obligatorio para presentar)</label>
+    <input id="personal" type="number" min="0" step="1" inputmode="numeric" style="max-width:160px" value="${k.personal_afectado ?? ''}" ${ed ? '' : 'readonly'}>
+    <label><input type="checkbox" id="esFinal" ${k.es_final ? 'checked' : ''} ${ed ? '' : 'disabled'}> Es el cómputo final (la obra terminó)</label>
+    <label for="obsComputo">Observaciones${k.items_que_superan_oferta.length ? ' (obligatorias: hay ítems que superan lo contratado)' : ''}</label>
+    <textarea id="obsComputo" maxlength="1000" ${ed ? '' : 'readonly'}>${esc(k.observaciones || '')}</textarea>
+    <div class="barra-fija" aria-live="polite"><span>Importe del mes: <b id="totMes">—</b></span><span>Avance acumulado: <b id="totAcum">—</b></span>
+      ${ed ? `<button type="button" class="sec" id="gGuardar">Guardar ${k.estado === 'presentado' ? 'cambios' : 'borrador'}</button>
+        ${k.estado === 'borrador' ? '<button type="button" id="gPresentar">Presentar cómputo</button>' : ''}<button type="button" class="sec" id="gEliminar">Eliminar</button>` : ''}</div>`;
+
+  const leer = () => {
+    const out = {};
+    for (const i of items) out[i.item_id] = numEntrada($(`#q${i.item_id}`).value);
+    return out;
+  };
+  const actualizar = () => {
+    const v = leer();
+    let mes = 0, acum = 0, hayError = false;
+    for (const i of items) {
+      const q = v[i.item_id], prev = $(`[data-prev="${i.item_id}"]`), fila = $(`[data-fila="${i.item_id}"]`);
+      if (Number.isNaN(q) || q < 0) { prev.innerHTML = '<span class="b-bad"><b>Número no válido</b></span>'; hayError = true; continue; }
+      const total = i.anterior + q, importeMes = Math.round(q * i.precio_cent);
+      mes += importeMes; acum += Math.round(total * i.precio_cent);
+      const sup = total > i.cantidad_oferta + 0.0005;
+      fila.classList.toggle('alerta', sup);
+      prev.innerHTML = `Acumulado: ${num(total)} ${esc(i.unidad)} (${pctTxt(i.cantidad_oferta ? Math.round(total / i.cantidad_oferta * 10000) / 100 : 0)}) · Importe del mes: ${pesos(importeMes)}` +
+        (sup ? ' <span class="b-warn"><b>⚠️ Supera lo contratado: explicalo en las observaciones</b></span>' : '');
+    }
+    $('#totMes').textContent = hayError ? '—' : pesos(mes);
+    $('#totAcum').textContent = hayError ? '—' : pctTxt(k.monto_contrato_cent ? Math.round(acum / k.monto_contrato_cent * 10000) / 100 : 0);
+    return !hayError;
+  };
+  const cuerpo = () => ({
+    items: items.map(i => ({ item_id: i.item_id, cantidad: leer()[i.item_id] })),
+    personal_afectado: $('#personal').value === '' ? null : +$('#personal').value,
+    es_final: $('#esFinal').checked, observaciones: $('#obsComputo').value });
+  actualizar();
+  if (!ed) return;
+  cont.querySelectorAll('[data-q]').forEach(i => { i.oninput = actualizar; });
+  const guardar = async () => { if (!actualizar()) throw new Error('Revisá los números marcados antes de guardar.'); return api('POST', `/computos/${kid}/guardar`, cuerpo()); };
+  $('#gGuardar').onclick = async () => {
+    try { await guardar(); toast('Guardado'); await vistaObra(); } catch (err) { mensaje($('#medMsg'), err.message, false); $('#medMsg').scrollIntoView({ block: 'center' }); }
+  };
+  if ($('#gPresentar')) $('#gPresentar').onclick = async () => {
+    try {
+      const b = cuerpo();
+      if (b.personal_afectado === null) { $('#personal').focus(); throw new Error('Falta la cantidad de personal afectado a la obra: es obligatoria para presentar.'); }
+      const r = await modal({ titulo: 'Presentar el cómputo', html: `<p>Vas a presentar el cómputo de <b>${mesTxt(k.mes)}</b>: importe del mes <b>${$('#totMes').textContent}</b>, personal afectado <b>${b.personal_afectado}</b>${b.es_final ? ', <b>cómputo final</b>' : ''}.</p>
+        <p class="small">Después se puede corregir sólo mientras no exista el certificado de ese mes.</p>`,
+        botones: [{ id: 'no', texto: 'Volver', cls: 'sec' }, { id: 'ok', texto: 'Presentar' }] });
+      if (!r || r.id !== 'ok') return;
+      await guardar();
+      await api('POST', `/computos/${kid}/presentar`, {});
+      toast('Cómputo presentado');
+      await vistaObra();
+    } catch (err) { mensaje($('#medMsg'), err.message, false); $('#medMsg').scrollIntoView({ block: 'center' }); }
+  };
+  $('#gEliminar').onclick = async () => {
+    const r = await modal({ titulo: 'Eliminar el cómputo', html: `<p>Se elimina el cómputo de <b>${mesTxt(k.mes)}</b>. Queda registrado en el historial y el mes vuelve a estar disponible.</p>`,
+      botones: [{ id: 'no', texto: 'Volver', cls: 'sec' }, { id: 'ok', texto: 'Eliminar' }] });
+    if (!r || r.id !== 'ok') return;
+    try { await api('POST', `/computos/${kid}/eliminar`, {}); toast('Cómputo eliminado'); await vistaObra(); } catch (err) { mensaje($('#medMsg'), err.message, false); }
+  };
+  $('#csvBajar').onclick = () => {
+    const v = leer();
+    descargarCSV(`planilla-${k.mes}.csv`, [['nro', 'descripcion', 'unidad', 'cantidad_contratada', 'acumulado_anterior', 'cantidad_este_mes'],
+      ...items.map(i => [i.nro, i.descripcion, i.unidad, i.cantidad_oferta, i.anterior, v[i.item_id] || ''])]);
+  };
+  $('#csvSubir').onclick = () => $('#csvArchivo').click();
+  $('#csvArchivo').onchange = async e => {
+    const archivo = e.target.files[0];
+    e.target.value = '';
+    if (!archivo) return;
+    try {
+      const filas = leerCSV(await archivo.text());
+      const cab = (filas[0] || []).map(x => x.trim().toLowerCase());
+      const iNro = cab.indexOf('nro'), iCant = cab.findIndex(x => ['cantidad_este_mes', 'cantidad_mes', 'presente'].includes(x));
+      if (iNro < 0 || iCant < 0) throw new Error('La planilla debe tener las columnas "nro" y "cantidad_este_mes". Descargá la planilla de ejemplo y completala.');
+      let cargados = 0; const ignorados = [];
+      for (const fila of filas.slice(1)) {
+        const item = items.find(i => String(i.nro) === String(fila[iNro]).trim());
+        if (!item) { ignorados.push(fila[iNro]); continue; }
+        const q = numEntrada(fila[iCant] ?? '');
+        if (Number.isNaN(q) || q < 0) throw new Error(`El ítem ${item.nro} tiene un número no válido: "${fila[iCant]}".`);
+        $(`#q${item.item_id}`).value = q ? String(q).replace('.', ',') : '';
+        cargados++;
+      }
+      actualizar();
+      mensaje($('#medMsg'), `Se completaron ${cargados} ítems desde la planilla${ignorados.length ? ` (se ignoraron ${ignorados.length} filas con ítems que no existen: ${ignorados.slice(0, 5).join(', ')})` : ''}. Revisá y guardá.`, true);
+    } catch (err) { mensaje($('#medMsg'), err.message, false); }
+  };
 }
 
 // ---------- arranque ----------

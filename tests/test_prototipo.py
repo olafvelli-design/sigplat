@@ -21,6 +21,7 @@ from http.server import ThreadingHTTPServer
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), 'app'))
 import core  # noqa: E402
+import obra  # noqa: E402
 import server  # noqa: E402
 
 def png(rgb):
@@ -516,6 +517,198 @@ class TrabajoDeInspeccion(Base):
         self.assertIn(('avance', 'validado'), hechos)
         self.assertIn(('evidencia', 'recibida'), hechos)
         self.assertIn(('intervencion', 'creada'), hechos)
+
+
+class ObraBase(Base):
+    """Obra ficticia de prueba: un rubro y dos ítems, con replanteo hace 75 días (tres meses para medir)."""
+    def setUp(self):
+        super().setUp()
+        self.contr = self.usuario(self.cba, 'Contratista T', 'contratista')
+        self.admin = self.usuario(self.cba, 'Administrativo T', 'administrativo')
+        self.hoy = datetime.now(timezone.utc).date()
+        self.replanteo = self.hoy - timedelta(days=75)
+        self.m0 = obra.mes_de(self.replanteo)
+        self.m1, self.m2 = obra.sumar_meses(self.m0, 1), obra.sumar_meses(self.m0, 2)
+        self.oid = self.nueva_obra()
+        self.ids = {r['nro']: r['id'] for r in self.c.execute('SELECT id, nro FROM items_obra WHERE obra_id=?', (self.oid,))}
+
+    def nueva_obra(self, replanteo=None, plazo=360, inspector='por_defecto', **kw):
+        items = [{'nro': 1, 'descripcion': 'Movimiento de suelos', 'titulo': True},
+                 {'nro': 2, 'descripcion': 'Excavación', 'unidad': 'm3', 'cantidad': 100, 'precio_cent': 2500000},
+                 {'nro': 3, 'descripcion': 'Hormigón H21', 'unidad': 'm3', 'cantidad': 50, 'precio_cent': 16000000}]
+        ideal = {2: {self.m0: 60, self.m1: 40}, 3: {self.m1: 25, self.m2: 25}}
+        oid = obra.crear_obra(self.c, self.cba['id'], 'Obra ficticia de prueba', 'Contratista ficticia',
+                              (replanteo or self.replanteo).strftime('%Y-%m-%d'), plazo, items, ideal, contratista_id=self.contr,
+                              inspector_id=self.insp if inspector == 'por_defecto' else inspector, **kw)
+        self.c.commit()
+        return oid
+
+    def computo(self, oid=None, uid=None):
+        _, k = self.llamar(obra.nuevo_computo, uid or self.insp, None, None, oid or self.oid)
+        return k
+
+    def guardar(self, kid, c2=0, c3=0, personal=40, **extra):
+        cuerpo = {'items': [{'item_id': self.ids[2], 'cantidad': c2}, {'item_id': self.ids[3], 'cantidad': c3}],
+                  'personal_afectado': personal, **extra}
+        return self.llamar(obra.guardar_computo, self.insp, cuerpo, None, kid)[1]
+
+    def presentar(self, kid):
+        return self.llamar(obra.presentar_computo, self.insp, None, None, kid)[1]
+
+    def certificado_directo(self, kid, monto=0):
+        """Sólo para la Fase 1: la emisión real de certificados llega en la Fase 2."""
+        n = self.c.execute('SELECT COALESCE(MAX(numero),0)+1 FROM certificados').fetchone()[0]
+        self.c.execute("""INSERT INTO certificados(obra_id,ente_id,numero,tipo,computo_id,estado,monto_cent,liquidacion_json,
+                          emitido_por,emitido_at) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                       (self.oid, self.cba['id'], n, 'parcial', kid, 'pendiente', monto, '{}', self.admin, core.iso(core.now())))
+        self.c.commit()
+
+    def computo_certificado(self, c2=0, c3=0, **extra):
+        k = self.computo()
+        self.guardar(k['id'], c2, c3, **extra)
+        self.presentar(k['id'])
+        self.certificado_directo(k['id'])
+        return k['id']
+
+    def error(self, fn, uid, body=None, *args):
+        with self.assertRaises(core.ApiError) as e:
+            self.llamar(fn, uid, body, None, *args)
+        return e.exception
+
+
+class ObraComputo(ObraBase):
+    def test_dinero_en_centavos_con_redondeo_comercial(self):
+        self.assertEqual([obra.centavos(0.5), obra.centavos(1.5), obra.centavos(2.5)], [1, 2, 3])  # round() de Python daría 0, 2, 2
+        self.assertEqual(obra.importe(33.333, 1999), 66633)
+        self.assertEqual(obra.importe(100, 2500000), 250000000)
+
+    def test_el_primer_computo_es_el_mes_del_replanteo_y_queda_en_borrador(self):
+        k = self.computo()
+        self.assertEqual((k['mes'], k['estado'], k['editable']), (self.m0, 'borrador', True))
+        self.assertEqual([f['nro'] for f in k['items']], [1, 2, 3])
+        self.assertTrue(k['items'][0]['es_titulo'])
+
+    def test_sin_inspector_asignado_no_se_carga_el_primer_computo(self):
+        oid = self.nueva_obra(inspector=None)
+        e = self.error(obra.nuevo_computo, self.insp, None, oid)
+        self.assertEqual(e.status, 409)
+        self.assertIn('inspector', e.msg)
+
+    def test_solo_el_inspector_asignado_mide(self):
+        otro = self.usuario(self.cba, 'Otro inspector', 'inspector')
+        self.assertEqual(self.error(obra.nuevo_computo, otro, None, self.oid).status, 404)
+        for quien in (self.contr, self.auth, self.admin):
+            self.assertEqual(self.error(obra.nuevo_computo, quien, None, self.oid).status, 403)
+
+    def test_se_carga_el_avance_del_mes_y_se_acumula_sin_float(self):
+        k0 = self.computo_certificado(c2=50)
+        k1 = self.computo()
+        v = self.guardar(k1['id'], c2=30, c3=10.5)
+        f = {x['nro']: x for x in v['items'] if not x['es_titulo']}
+        self.assertEqual((f[2]['anterior'], f[2]['presente'], f[2]['acumulada']), (50.0, 30.0, 80.0))
+        self.assertEqual((f[2]['pct_anterior'], f[2]['pct_presente'], f[2]['pct_acumulado']), (50.0, 30.0, 80.0))
+        self.assertEqual(f[3]['pct_acumulado'], 21.0)
+        self.assertEqual(f[2]['importe_presente_cent'], 75000000)
+        self.assertEqual(f[3]['importe_presente_cent'], 168000000)
+        self.assertEqual(v['totales']['importe_presente_cent'], 243000000)
+        self.assertEqual(v['mes'], self.m1)
+
+    def test_para_presentar_hace_falta_el_personal_afectado(self):
+        k = self.computo()
+        self.guardar(k['id'], c2=10, personal=None)
+        e = self.error(obra.presentar_computo, self.insp, None, k['id'])
+        self.assertEqual(e.status, 400)
+        self.assertIn('personal afectado', e.msg)
+        self.guardar(k['id'], c2=10, personal=35)
+        self.assertEqual(self.presentar(k['id'])['estado'], 'presentado')
+
+    def test_no_se_abre_un_computo_sin_el_certificado_del_mes_anterior(self):
+        k = self.computo()
+        self.guardar(k['id'], c2=10)
+        e = self.error(obra.nuevo_computo, self.insp, None, self.oid)  # el anterior sigue en borrador
+        self.assertEqual(e.status, 409)
+        self.presentar(k['id'])
+        e = self.error(obra.nuevo_computo, self.insp, None, self.oid)  # presentado, pero sin certificado
+        self.assertIn('certificado del mes anterior', e.msg)
+        self.certificado_directo(k['id'])
+        self.assertEqual(self.computo()['mes'], self.m1)
+
+    def test_un_computo_solo_se_modifica_o_elimina_sin_certificado(self):
+        k = self.computo()
+        self.guardar(k['id'], c2=10)
+        self.presentar(k['id'])
+        self.guardar(k['id'], c2=20)  # presentado y sin certificado: se puede corregir
+        v = self.llamar(obra.ver_computo, self.insp, None, None, k['id'])[1]
+        self.assertEqual(v['items'][1]['presente'], 20.0)
+        self.certificado_directo(k['id'])
+        self.assertEqual(self.error(obra.guardar_computo, self.insp, {'personal_afectado': 3}, k['id']).status, 409)
+        self.assertEqual(self.error(obra.eliminar_computo, self.insp, None, k['id']).status, 409)
+
+    def test_eliminar_libera_el_mes_pero_queda_el_registro(self):
+        k = self.computo()
+        self.llamar(obra.eliminar_computo, self.insp, None, None, k['id'])
+        self.assertEqual(self.c.execute('SELECT estado FROM computos WHERE id=?', (k['id'],)).fetchone()['estado'], 'eliminado')
+        self.assertEqual(self.computo()['mes'], self.m0)  # el mes vuelve a estar disponible
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.c.execute('DELETE FROM computos')
+
+    def test_el_computo_final_cierra_la_serie(self):
+        k = self.computo_certificado(c2=100, c3=50, es_final=True)
+        e = self.error(obra.nuevo_computo, self.insp, None, self.oid)
+        self.assertIn('cómputo final', e.msg)
+
+    def test_lo_medido_por_encima_de_lo_contratado_avisa_y_exige_observacion(self):
+        k = self.computo()
+        v = self.guardar(k['id'], c2=120)
+        self.assertEqual(v['items_que_superan_oferta'], [2])
+        e = self.error(obra.presentar_computo, self.insp, None, k['id'])
+        self.assertEqual(e.status, 400)
+        self.assertIn('superan la cantidad contratada', e.msg)
+        self.guardar(k['id'], c2=120, observaciones='Se midió demasía autorizada por la dirección')
+        self.assertEqual(self.presentar(k['id'])['estado'], 'presentado')  # avisa, no bloquea
+
+    def test_con_la_obra_vencida_hace_falta_el_plazo_de_certificacion(self):
+        oid = self.nueva_obra(plazo=30)  # replanteo hace 75 días: vencida
+        e = self.error(obra.nuevo_computo, self.insp, None, oid)
+        self.assertEqual((e.status, e.msg), (409, 'Para dar de alta un plazo cert. obra vencida haga click aquí'))
+        self.assertEqual(self.error(obra.registrar_plazo_vencida, self.insp, {'dias': 20}, oid).status, 403)
+        self.llamar(obra.registrar_plazo_vencida, self.admin, {'dias': 20}, None, oid)
+        self.assertEqual(self.computo(oid)['mes'], self.m0)
+        self.assertEqual(self.error(obra.registrar_plazo_vencida, self.admin, {'dias': 20}, self.oid).status, 409)  # esta no venció
+
+    def test_no_se_mide_un_mes_que_todavia_no_empezo(self):
+        oid = self.nueva_obra(replanteo=self.hoy + timedelta(days=40))
+        self.assertEqual(self.error(obra.nuevo_computo, self.insp, None, oid).status, 409)
+
+    def test_curva_ideal_contra_real_con_n_y_nota(self):
+        ficha = self.llamar(obra.ficha_obra, self.insp, None, None, self.oid)[1]
+        self.assertIsNone(ficha['curva']['desvio']['valor'])  # sin certificados no se inventa un desvío
+        self.assertEqual(ficha['curva']['desvio']['nota'], 'Sin datos suficientes')
+        self.computo_certificado(c2=50)
+        cv = self.llamar(obra.curva_obra, self.insp, None, None, self.oid)[1]
+        p0 = cv['puntos'][0]
+        self.assertEqual((p0['mes'], p0['ideal_acum_cent'], p0['real_acum_cent'], p0['desvio_cent']),
+                         (self.m0, 150000000, 125000000, -25000000))
+        self.assertEqual(cv['monto_contrato_cent'], 1050000000)
+        self.assertEqual((p0['ideal_acum_pct'], p0['real_acum_pct'], p0['desvio_pp']), (14.29, 11.9, -2.38))
+        self.assertEqual(cv['desvio']['n'], 1)
+        self.assertIsNone(cv['puntos'][1]['real_acum_cent'])  # los meses sin certificado no tienen valor real
+
+    def test_cada_rol_ve_solo_sus_obras(self):
+        otro = self.usuario(self.cba, 'Otro inspector', 'inspector')
+        otro_c = self.usuario(self.cba, 'Otro contratista', 'contratista')
+        ve = lambda quien: [o['id'] for o in self.llamar(obra.listar_obras, quien)[1]]  # noqa: E731
+        self.assertEqual(ve(self.insp), [self.oid])
+        self.assertEqual(ve(self.contr), [self.oid])
+        for quien in (self.auth, self.admin):
+            self.assertEqual(ve(quien), [self.oid])
+        self.assertEqual((ve(otro), ve(otro_c)), ([], []))
+        self.assertEqual(self.error(obra.ficha_obra, otro, None, self.oid).status, 404)
+        self.assertEqual(self.error(obra.ficha_obra, otro_c, None, self.oid).status, 404)
+        self.assertEqual(self.error(obra.ficha_obra, self.resp, None, self.oid).status, 403)  # el responsable de intervenciones no ve obras
+
+    def test_otro_ente_no_ve_la_obra(self):
+        self.assertEqual(self.error(obra.ficha_obra, self.auth_b, None, self.oid).status, 404)
 
 
 class CuentaVecino(ServidorHTTP):
