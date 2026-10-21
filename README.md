@@ -27,12 +27,14 @@ Abrir <http://127.0.0.1:8000>. El `seed` recrea `data/sigplat.db` con datos fict
 python -m unittest discover -s tests -v
 ```
 
-46 pruebas: reglas de estado, separación de funciones, evidencias append-only, banderas de consistencia, aislamiento entre entes, permisos por rol, autenticación (contraseña, sesión, bloqueo, revocación), indicadores sin datos inventados, y pruebas HTTP. Usan base y fotos temporales.
+54 pruebas: reglas de estado, separación de funciones, evidencias append-only, banderas de consistencia, aislamiento entre entes, permisos por rol, autenticación (contraseña, sesión, bloqueo, revocación), indicadores sin datos inventados, y pruebas HTTP. Usan base y fotos temporales.
 
 ## Acceso
 
 - **Personal** (inspector, responsable, autoridad, administrador): usuario y contraseña en el encabezado. Contraseñas con PBKDF2-SHA256 (biblioteca estándar, 310 000 iteraciones). La sesión dura 8 h, se guarda sólo como hash y viaja en una cookie `HttpOnly; SameSite=Strict`. Tras 5 intentos fallidos el usuario queda bloqueado 5 minutos. Cada intento fallido queda en el historial.
 - **Ciudadano**: sin cuenta. Reporta y consulta con el código de seguimiento. Es una decisión deliberada: no pedimos datos personales para reportar. La identidad ciudadana se resolverá después con CiDi.
+- **Vecino (cuenta opcional)**: quien quiera puede tener cuenta. Reporta igual, y además ve **sus** reportes en "Mis reportes" con el mismo estado público que ve cualquiera. No accede a nada interno (tablero, bandeja, intervenciones). El vínculo reporte-cuenta no aparece en ninguna vista del personal.
+- **Cuentas simples de prueba** (CBA-PILOTO, usuario = contraseña): `vecino` / `vecino` e `inspector` / `inspector`. Existen sólo porque los datos son ficticios; en un despliegue real no se debe crear usuarios así.
 - **Datos de prueba**: `python scripts/seed.py` genera `data/credenciales_prueba.txt` con los usuarios y la contraseña común de prueba (definida en `scripts/seed.py`). Son de uso local. No usar en ningún despliegue real.
 
 Cada rol ve sólo lo que le corresponde:
@@ -40,6 +42,7 @@ Cada rol ve sólo lo que le corresponde:
 | Rol | Puede |
 |---|---|
 | Ciudadano (sin cuenta) | Reportar, consultar por código |
+| Vecino (con cuenta) | Lo mismo que el ciudadano, y ver sus propios reportes |
 | Responsable | Ver **sus** intervenciones asignadas, iniciar, declarar avances y finalización, cargar evidencias |
 | Inspector | Bandeja de incidencias, inspeccionar, validar o observar avances, revisar evidencias, mapa y tablero |
 | Autoridad | Todo lo anterior, más crear intervenciones y cerrarlas |

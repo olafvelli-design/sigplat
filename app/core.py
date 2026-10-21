@@ -30,7 +30,8 @@ MAX_FOTO_BYTES = 3 * 1024 * 1024
 MIME_EXT = {'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp'}
 FOTO_RE = re.compile(r'^data:(image/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=\s]+)$')
 
-ROLES = ('inspector', 'responsable', 'autoridad', 'administrador')
+ROLES = ('inspector', 'responsable', 'autoridad', 'administrador')  # personal del ente
+ROL_VECINO = 'vecino'  # cuenta ciudadana: reporta y ve sólo sus reportes; no está en PERMISOS, así que no accede a nada interno
 ESTADO_PUBLICO = {
     'recibida': 'Recibida, en revisión',
     'confirmada': 'Confirmada por inspección',
@@ -147,7 +148,10 @@ def conectar(ruta):
 
 
 def fila(r):
-    return dict(r) if r is not None else None
+    d = dict(r) if r is not None else None
+    if d is not None:
+        d.pop('reportada_por', None)  # quién reportó no sale en ninguna vista
+    return d
 
 
 def audit(c, ente_id, entidad, eid, accion, usuario_id, detalle=None):
@@ -294,13 +298,20 @@ def reportar(c, ctx):
     lat, lon = coords(b.get('lat'), b.get('lon'))
     precision = numero_opcional(b.get('precision_m'), 0, 100000, 'precision_m')
     canal = b.get('canal') if b.get('canal') in ('app', 'cidi', 'web') else 'web'
+    reportada_por = None
+    if ctx.get('uid'):  # un vecino con cuenta: el reporte queda en "Mis reportes". Sin cuenta sigue siendo anónimo.
+        u = c.execute('SELECT * FROM usuarios WHERE id=? AND activo=1', (ctx['uid'],)).fetchone()
+        if u is not None and u['rol'] == ROL_VECINO:
+            if u['ente_id'] != ente['id']:
+                raise ApiError(403, 'tu cuenta pertenece a otro ente')
+            reportada_por = u['id']
     t = now()
     duplicados = posibles_duplicados(c, ente, cfg, categoria, lat, lon, t)
     codigo = 'INC-' + secrets.token_hex(3).upper()
     cur = c.execute(
-        '''INSERT INTO incidencias(ente_id,codigo,categoria,descripcion,lat,lon,precision_m,canal,fecha_reporte,estado)
-           VALUES(?,?,?,?,?,?,?,?,?,?)''',
-        (ente['id'], codigo, categoria, descripcion, lat, lon, precision, canal, iso(t), 'recibida'),
+        '''INSERT INTO incidencias(ente_id,codigo,categoria,descripcion,lat,lon,precision_m,canal,fecha_reporte,estado,reportada_por)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?)''',
+        (ente['id'], codigo, categoria, descripcion, lat, lon, precision, canal, iso(t), 'recibida', reportada_por),
     )
     inc_id = cur.lastrowid
     if b.get('foto'):
@@ -342,6 +353,21 @@ def seguimiento_publico(c, ctx, codigo):
                              'fecha_cierre': it['fecha_cierre'],
                              'estado_publico': 'Finalizada' if it['estado'] in ('validada', 'cerrada') else 'En curso'}
     return 200, d
+
+
+def mis_reportes(c, ctx):
+    """Reportes hechos por la cuenta de vecino que inició sesión, con el mismo estado público que ve cualquiera."""
+    u, _ = usuario_actual(c, ctx)
+    if u['rol'] != ROL_VECINO:
+        raise ApiError(403, 'sólo las cuentas de vecino tienen "Mis reportes"')
+    filas = c.execute('SELECT codigo, descripcion FROM incidencias WHERE reportada_por=? ORDER BY fecha_reporte DESC, id DESC',
+                      (u['id'],)).fetchall()
+    out = []
+    for f in filas:
+        _, d = seguimiento_publico(c, ctx, f['codigo'])
+        d['descripcion'] = f['descripcion']
+        out.append(d)
+    return 200, out
 
 
 def listar_incidencias(c, ctx):
@@ -845,6 +871,7 @@ RUTAS = [
     ('GET', r'^/usuarios$', listar_usuarios),
     ('POST', r'^/incidencias$', reportar),
     ('GET', r'^/seguimiento/([^/]*)$', seguimiento_publico),
+    ('GET', r'^/mis-reportes$', mis_reportes),
     ('GET', r'^/incidencias$', listar_incidencias),
     ('GET', r'^/incidencias/(\d+)$', ficha_incidencia),
     ('POST', r'^/incidencias/(\d+)/inspeccion$', inspeccionar),

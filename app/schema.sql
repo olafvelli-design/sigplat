@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
     nombre        TEXT NOT NULL,
     login         TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
-    rol           TEXT NOT NULL CHECK (rol IN ('inspector','responsable','autoridad','administrador')),
+    rol           TEXT NOT NULL CHECK (rol IN ('inspector','responsable','autoridad','administrador','vecino')),
     activo        INTEGER NOT NULL DEFAULT 1
 );
 
@@ -46,7 +46,8 @@ CREATE TABLE IF NOT EXISTS incidencias (
     duplicada_de    INTEGER REFERENCES incidencias(id),
     reportes_count  INTEGER NOT NULL DEFAULT 1,
     intervencion_id INTEGER REFERENCES intervenciones(id),
-    fecha_resuelta  TEXT
+    fecha_resuelta  TEXT,
+    reportada_por   INTEGER REFERENCES usuarios(id)  -- sólo si reportó un vecino con cuenta; nunca se muestra en vistas internas
 );
 
 CREATE TABLE IF NOT EXISTS inspecciones (

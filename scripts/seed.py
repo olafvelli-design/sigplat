@@ -20,6 +20,8 @@ ALEATORIO = random.Random(7)  # semilla fija: el seed es reproducible
 # Contraseña ÚNICA de los usuarios de prueba. Sólo para desarrollo local: cambiarla o no crear usuarios así en producción.
 PASSWORD_PRUEBA = 'SIGPLAT-prueba-2026'
 CREDENCIALES = []  # (ente, login, nombre, rol); se escribe en data/credenciales_prueba.txt
+# Cuentas fáciles de recordar para probar a mano (usuario = contraseña). Sólo para esta demo con datos ficticios.
+USUARIOS_SIMPLES = [('vecino', 'Vecino de prueba', 'vecino'), ('inspector', 'Inspector de prueba', 'inspector')]
 
 
 def png_color(rgb, lado=16):
@@ -178,6 +180,10 @@ def construir(ruta, inicio):
          ('Responsable cuadrilla A (ficticia)', 'responsable'), ('Responsable cuadrilla B (ficticia)', 'responsable'),
          ('Autoridad ficticia (Secretaría de Obras)', 'autoridad'), ('Administrador ficticio', 'administrador')],
         reportes=30)
+    ente_cba = c.execute("SELECT id FROM entes WHERE codigo='CBA-PILOTO'").fetchone()['id']
+    simples = {rol: core.crear_usuario(c, ente_cba, nombre, login_nombre, login_nombre, rol)
+               for login_nombre, nombre, rol in USUARIOS_SIMPLES}
+    c.commit()
     s.avanzar(dias=5)
     confirmadas_cba = confirmadas_cba[:8]
     f = confirmadas_cba
@@ -203,6 +209,24 @@ def construir(ruta, inicio):
                                     'descripcion': 'Otro vecino reporta el mismo problema (ficticio).',
                                     'foto': png_color((60, 90, 120))}))  # misma foto que el primer reporte
     c.commit()
+
+    # Reportes de la cuenta "vecino", con estados distintos para que "Mis reportes" no aparezca vacío
+    mis_codigos = []
+    for k, categoria in enumerate(cfg_cba['categorias'][:3]):
+        s.avanzar(horas=3)
+        _, res = core.reportar(c, ctx({
+            'ente': 'CBA-PILOTO', 'categoria': categoria, 'lat': cfg_cba['centro'][0] + 0.004 * (k + 1),
+            'lon': cfg_cba['centro'][1] - 0.003 * (k + 1), 'precision_m': 8, 'canal': 'web',
+            'descripcion': f'Reporte ficticio {k + 1} de la cuenta vecino de prueba.',
+            'capturada_at': s.t.strftime('%Y-%m-%dT%H:%M:%SZ'), 'foto': png_color((200, 60 + 50 * k, 60))}, simples['vecino']))
+        mis_codigos.append(res['codigo'])
+        c.commit()
+    s.avanzar(dias=1)
+    for codigo, resultado in zip(mis_codigos[:2], ('confirmada', 'descartada')):  # el tercero queda sin inspeccionar
+        inc = c.execute('SELECT id FROM incidencias WHERE codigo=?', (codigo,)).fetchone()
+        core.inspeccionar(c, ctx({'resultado': resultado, 'gravedad': 2, 'observaciones': 'Revisado (dato ficticio).'},
+                                 insp_cba[0]), inc['id'])
+        c.commit()
 
     # Ente B: flujo mínimo para demostrar que el mismo sistema sirve a otro ente con otra configuración
     ids_b, insp_b, resp_b, auth_b, confirmadas_b, cfg_b = sembrar_ente(
@@ -240,6 +264,9 @@ def main():
         f.write(f'Contraseña común: {PASSWORD_PRUEBA}\n\n')
         for ente, login_nombre, nombre, rol in CREDENCIALES:
             f.write(f'{ente:12} {login_nombre:24} {rol:12} {nombre}\n')
+        f.write('\nCuentas simples de CBA-PILOTO (la contraseña es igual al usuario):\n')
+        for login_nombre, nombre, rol in USUARIOS_SIMPLES:
+            f.write(f'{"CBA-PILOTO":12} {login_nombre:24} {rol:12} {nombre}\n')
     print('Base ficticia creada:', DB, '| historia desde', inicio.date(), 'hasta', (inicio + duracion).date())
     print('Credenciales de prueba en', ruta_cred)
 

@@ -446,6 +446,63 @@ class AutorizacionPorRol(Base):
         self.assertEqual(e.exception.status, 403)
 
 
+class CuentaVecino(ServidorHTTP):
+    """El vecino con cuenta reporta y ve sólo lo suyo; nada interno del ente."""
+    def setUp(self):
+        super().setUp()
+        core.crear_usuario(self.c, self.cba['id'], 'Vecino T', 'vecino-t', 'vecino-t', 'vecino')
+        core.crear_usuario(self.c, self.cba['id'], 'Otro vecino T', 'vecino-t2', 'vecino-t2', 'vecino')
+        core.crear_usuario(self.c, self.cba['id'], 'Inspector T2', 'inspector-t', 'inspector-t', 'inspector')
+        self.c.commit()
+        self.rep = {'ente': 'CBA-PILOTO', 'categoria': 'Bache', 'descripcion': 'Bache hecho por un vecino',
+                    'lat': -31.4, 'lon': -64.2}
+
+    def test_reporte_con_sesion_queda_en_mis_reportes_y_el_anonimo_no(self):
+        _, _, tok = self.sesion('vecino-t', 'vecino-t')
+        st, mio = self.pedir('POST', '/api/incidencias', self.rep, cookie=tok)
+        self.assertEqual(st, 201)
+        st, anonimo = self.pedir('POST', '/api/incidencias', dict(self.rep, lat=-31.5))
+        self.assertEqual(st, 201)
+        st, lista = self.pedir('GET', '/api/mis-reportes', cookie=tok)
+        self.assertEqual(st, 200)
+        self.assertEqual([r['codigo'] for r in lista], [mio['codigo']])
+        self.assertEqual(lista[0]['estado'], 'Recibida, en revisión')
+
+    def test_cada_vecino_ve_solo_sus_reportes(self):
+        _, _, t1 = self.sesion('vecino-t', 'vecino-t')
+        _, _, t2 = self.sesion('vecino-t2', 'vecino-t2')
+        self.pedir('POST', '/api/incidencias', self.rep, cookie=t1)
+        st, lista = self.pedir('GET', '/api/mis-reportes', cookie=t2)
+        self.assertEqual((st, lista), (200, []))
+
+    def test_vecino_no_accede_a_nada_interno(self):
+        _, _, tok = self.sesion('vecino-t', 'vecino-t')
+        for ruta in ('/api/indicadores', '/api/incidencias', '/api/intervenciones', '/api/usuarios', '/api/mapa'):
+            st, _ = self.pedir('GET', ruta, cookie=tok)
+            self.assertEqual(st, 403, ruta)
+
+    def test_mis_reportes_exige_cuenta_de_vecino(self):
+        st, _ = self.pedir('GET', '/api/mis-reportes')
+        self.assertEqual(st, 401)
+        _, _, tok = self.sesion('inspector-t', 'inspector-t')
+        st, _ = self.pedir('GET', '/api/mis-reportes', cookie=tok)
+        self.assertEqual(st, 403)
+
+    def test_vista_interna_no_muestra_quien_reporto(self):
+        _, _, t_vecino = self.sesion('vecino-t', 'vecino-t')
+        st, mio = self.pedir('POST', '/api/incidencias', self.rep, cookie=t_vecino)
+        _, _, t_insp = self.sesion('inspector-t', 'inspector-t')
+        st, lista = self.pedir('GET', '/api/incidencias', cookie=t_insp)
+        self.assertEqual(st, 200)
+        self.assertTrue(any(i['codigo'] == mio['codigo'] for i in lista))
+        self.assertNotIn('reportada_por', json.dumps(lista))
+
+    def test_vecino_no_reporta_en_otro_ente(self):
+        _, _, tok = self.sesion('vecino-t', 'vecino-t')
+        st, _ = self.pedir('POST', '/api/incidencias', dict(self.rep, ente='ENTE-B', categoria='Pozo o hundimiento'), cookie=tok)
+        self.assertEqual(st, 403)
+
+
 class Autenticacion(ServidorHTTP):
     def setUp(self):
         super().setUp()

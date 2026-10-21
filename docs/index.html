@@ -88,7 +88,7 @@
   </form>
   <span id="sesion" class="small"></span>
 </header>
-<div class="banner"><b>Demo en el navegador</b>: corre en tu equipo, sin servidor, y guarda lo que hacés sólo en este navegador. Datos <b>ficticios</b>. El ciudadano no necesita cuenta. Personal: usuario <code>cba-piloto.inspector1</code>, <code>cba-piloto.responsable1</code> o <code>cba-piloto.autoridad1</code>, contraseña <code>SIGPLAT-prueba-2026</code>. <a href="#" onclick="reiniciarDemo();return false">Reiniciar demo</a></div>
+<div class="banner"><b>Demo en el navegador</b>: corre en tu equipo, sin servidor, y guarda lo que hacés sólo en este navegador. Datos <b>ficticios</b>. Reportar y consultar no requiere cuenta. Para entrar: usuario y contraseña <code>vecino</code> (cuenta ciudadana, ve sus reportes) o <code>inspector</code> (inspección y tablero). También <code>cba-piloto.responsable1</code> y <code>cba-piloto.autoridad1</code> con contraseña <code>SIGPLAT-prueba-2026</code>. <a href="#" onclick="reiniciarDemo();return false">Reiniciar demo</a></div>
 <nav id="tabs"></nav>
 <main id="vista"></main>
 
@@ -294,7 +294,9 @@ async function cargarFotos(raiz) {
 
 function tabsDisponibles() {
   const t = [['ciudadano', 'Reportar (ciudadano)'], ['seguimiento', 'Seguimiento por código']];
-  if (S.usuario) {
+  if (S.usuario && S.usuario.rol === 'vecino') {
+    t.push(['mis_reportes', 'Mis reportes']);  // la cuenta de vecino no ve nada interno del ente
+  } else if (S.usuario) {
     const tablero = ['inspector', 'autoridad', 'administrador'].includes(S.usuario.rol);
     if (tablero) t.push(['mapa', 'Mapa y tablero'], ['incidencias', 'Bandeja de incidencias']);
     t.push(['intervenciones', S.usuario.rol === 'responsable' ? 'Mis intervenciones' : 'Intervenciones']);
@@ -322,7 +324,7 @@ async function cargarSesion() {
   }
   if (!S.ente || !S.entes.some(e => e.codigo === S.ente)) S.ente = S.entes[0].codigo;
   S.config = S.entes.find(e => e.codigo === S.ente).config;
-  S.usuarios = S.usuario && S.usuario.rol !== 'responsable' ? await api('GET', '/usuarios') : [];
+  S.usuarios = S.usuario && ['inspector', 'autoridad', 'administrador'].includes(S.usuario.rol) ? await api('GET', '/usuarios') : [];
   if (!tabsDisponibles().some(t => t[0] === S.tab)) S.tab = 'ciudadano';
   pintarSesion();
   render();
@@ -346,7 +348,7 @@ async function iniciarSesion(ev) {
     await api('POST', '/login', { login: $('#lUsuario').value.trim(), password: $('#lClave').value });
     $('#lClave').value = '';
     await cargarSesion();
-    S.tab = S.usuario.rol === 'responsable' ? 'intervenciones' : 'mapa';
+    S.tab = { responsable: 'intervenciones', vecino: 'mis_reportes' }[S.usuario.rol] || 'mapa';
     render();
   } catch (err) {
     mensaje($('#vista'), err.message, false);
@@ -361,7 +363,7 @@ async function cerrarSesion() {
 
 function render() {
   pintarTabs();
-  const v ={ ciudadano: vistaCiudadano, seguimiento: vistaSeguimiento, mapa: vistaMapa,
+  const v = { ciudadano: vistaCiudadano, seguimiento: vistaSeguimiento, mis_reportes: vistaMisReportes, mapa: vistaMapa,
               incidencias: vistaIncidencias, intervenciones: vistaIntervenciones }[S.tab];
   S.capa = null;
   v();
@@ -374,7 +376,8 @@ function vistaCiudadano() {
   <div class="grid">
     <div class="card">
       <h2>Reportar un problema en la vía pública</h2>
-      <p class="small">Ubicá el problema en el mapa o usá tu ubicación. Recibirás un código para seguirlo.</p>
+      <p class="small">Ubicá el problema en el mapa o usá tu ubicación. Recibirás un código para seguirlo.
+        ${S.usuario && S.usuario.rol === 'vecino' ? 'Como iniciaste sesión, el reporte también queda en "Mis reportes".' : ''}</p>
       <label>Categoría</label><select id="rCat">${cats}</select>
       <label>Descripción (10 a 500 caracteres)</label><textarea id="rDesc" maxlength="500"></textarea>
       <label>Foto (opcional)</label><input type="file" id="rFoto" accept="image/*" capture="environment">
@@ -444,6 +447,21 @@ function vistaSeguimiento() {
       mensaje($('#sRes'), err.message + ayuda, false);
     }
   };
+}
+
+// ---------- MIS REPORTES (cuenta de vecino) ----------
+async function vistaMisReportes() {
+  $('#vista').innerHTML = `<div class="card"><h2>Mis reportes</h2><div id="misRep"><p class="small">Cargando…</p></div></div>`;
+  try {
+    const lista = await api('GET', '/mis-reportes');
+    $('#misRep').innerHTML = lista.length
+      ? `<table><tr><th>Código</th><th>Categoría</th><th>Estado</th><th>Reportado</th><th>Intervención</th></tr>
+        ${lista.map(r => `<tr><td>${esc(r.codigo)}</td><td>${esc(r.categoria)}<div class="small">${esc(r.descripcion)}</div></td>
+          <td>${esc(r.estado)}</td><td>${fmt(r.fecha_reporte)}</td>
+          <td>${r.intervencion ? esc(r.intervencion.estado_publico) + ' · plazo ' + dia(r.intervencion.fecha_planificada_fin) : '—'}</td></tr>`).join('')}</table>
+        <p class="small">Un reporte no equivale a una evaluación técnica: se confirma o descarta en inspección.</p>`
+      : '<p class="small">Todavía no hiciste reportes con esta cuenta. Usá la pestaña "Reportar (ciudadano)".</p>';
+  } catch (err) { mensaje($('#misRep'), err.message, false); }
 }
 
 // ---------- MAPA Y TABLERO ----------
