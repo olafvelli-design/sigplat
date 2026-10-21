@@ -434,7 +434,11 @@ def _resumen(c, obra, items=None):
             mes_a_medir = sumar_meses(ultimo['mes'], 1)
         if mes_a_medir and mes_a_medir > mes_de(h):
             mes_a_medir = None
-    return {'monto_contrato_cent': monto, 'fecha_fin': fin.strftime('%Y-%m-%d'), 'dias_restantes': (fin - h).days, 'vencida': h > fin,
+    sin_certificado = sum(1 for k in c.execute("SELECT id FROM computos WHERE obra_id=? AND estado='presentado'", (obra['id'],))
+                          if _certificado_de(c, k['id']) is None)
+    cert_pendientes = c.execute("SELECT COUNT(*) FROM certificados WHERE obra_id=? AND estado='pendiente'", (obra['id'],)).fetchone()[0]
+    return {'monto_contrato_cent': monto, 'computos_sin_certificado': sin_certificado, 'certificados_pendientes': cert_pendientes,
+            'fecha_fin': fin.strftime('%Y-%m-%d'), 'dias_restantes': (fin - h).days, 'vencida': h > fin,
             'plazo_cert_vencida_activo': _plazo_vencida_activo(c, obra['id']),
             'avance_ideal_pct': ideal_hoy[-1]['ideal_acum_pct'] if ideal_hoy else 0.0,
             'avance_certificado_pct': real[-1]['real_acum_pct'] if real else None,
@@ -474,7 +478,9 @@ def ficha_obra(c, ctx, oid):
             f['pct_medido'] = pct(a, i['cantidad_oferta'])
         filas.append(f)
     d = _datos_obra(c, obra)
-    d.update(items=filas, resumen=_resumen(c, obra, items), curva=curva(c, obra, items), computos=_lista_computos(c, obra, items))
+    d.update(items=filas, resumen=_resumen(c, obra, items), curva=curva(c, obra, items), computos=_lista_computos(c, obra, items),
+             certificados=[_resumen_certificado(c, core.fila(r)) for r in c.execute(
+                 'SELECT * FROM certificados WHERE obra_id=? ORDER BY numero, id', (oid,))])
     return 200, d
 
 
@@ -483,7 +489,184 @@ def curva_obra(c, ctx, oid):
     return 200, curva(c, obra)
 
 
+# ---------- certificados (manual pp. 66-78) ----------
+
+EXPEDIENTE_RE = re.compile(r'^\d{4}-\d{6}/\d{4}(/A\d{1,4})?$')  # formato del expediente SUAC: ____-______/____ o con anexo /A___
+FIRMAS_REALES = 4  # el certificado real lleva cuatro firmas; la simulación muestra las que corresponden al circuito
+
+
+def liquidar(importe_mes_cent, anticipo_pct, fondo_reparo_pct, fondo_inspeccion_pct, iva_pct=21):
+    """Liquidación SIMPLIFICADA del certificado (el real tiene 17 conceptos). Todo en centavos enteros.
+    anticipo, fondo de reparo y de inspección se descuentan del importe del mes; el IVA se calcula sobre el neto."""
+    importe_mes = int(importe_mes_cent)
+    anticipo = centavos(_d(importe_mes) * _d(anticipo_pct) / 100)
+    reparo = centavos(_d(importe_mes) * _d(fondo_reparo_pct) / 100)
+    inspeccion = centavos(_d(importe_mes) * _d(fondo_inspeccion_pct) / 100)
+    neto = importe_mes - anticipo - reparo - inspeccion
+    iva = centavos(_d(neto) * _d(iva_pct) / 100)
+    return {'importe_mes_cent': importe_mes, 'descuento_anticipo_cent': anticipo, 'fondo_reparo_cent': reparo,
+            'fondo_inspeccion_cent': inspeccion, 'neto_cent': neto, 'iva_cent': iva, 'a_abonar_cent': neto + iva,
+            'anticipo_pct': anticipo_pct, 'fondo_reparo_pct': fondo_reparo_pct, 'fondo_inspeccion_pct': fondo_inspeccion_pct,
+            'iva_pct': iva_pct}
+
+
+def _importe_computo(c, kid, precios):
+    return sum(importe(r['cantidad'], precios[r['item_id']])
+               for r in c.execute('SELECT item_id, cantidad FROM computo_items WHERE computo_id=?', (kid,)))
+
+
+def _cert_para(c, ctx, cid, permiso='ver_obras'):
+    u, ente = core.usuario_actual(c, ctx)
+    core.exigir(u, permiso)
+    r = c.execute('SELECT * FROM certificados WHERE id=?', (cid,)).fetchone()
+    if r is None:
+        raise ApiError(404, 'certificado inexistente')
+    obra = _obra(c, ente, r['obra_id'])
+    if not _visible(u, obra):
+        raise ApiError(404, 'certificado inexistente')
+    return u, ente, obra, core.fila(r)
+
+
+def _nombre(c, uid):
+    r = c.execute('SELECT nombre FROM usuarios WHERE id=?', (uid,)).fetchone() if uid else None
+    return r['nombre'] if r else None
+
+
+def _resumen_certificado(c, cert):
+    k = c.execute('SELECT mes FROM computos WHERE id=?', (cert['computo_id'],)).fetchone()
+    liq = json.loads(cert['liquidacion_json'] or '{}')
+    vencido = bool(cert['estado'] == 'autorizado' and cert['vence_at'] and hoy() > parse_fecha(cert['vence_at'], 'vence_at'))
+    return {'id': cert['id'], 'numero': cert['numero'], 'tipo': cert['tipo'], 'estado': cert['estado'], 'mes': k['mes'],
+            'monto_cent': cert['monto_cent'], 'a_abonar_cent': liq.get('a_abonar_cent'), 'expediente_externo': cert['expediente_externo'],
+            'fecha_autorizacion': cert['fecha_autorizacion'], 'vence_at': cert['vence_at'], 'vencido': vencido}
+
+
+def emitir_certificado(c, ctx, oid):
+    """El administrativo emite el certificado de un cómputo presentado. Nace PENDIENTE (se imprime 'NO AUTORIZADO')."""
+    u, ente = core.usuario_actual(c, ctx)
+    core.exigir(u, 'emitir_certificado')
+    obra = _obra(c, ente, oid)
+    if not _visible(u, obra):
+        raise ApiError(404, 'obra inexistente')
+    b = ctx['body']
+    k = c.execute('SELECT * FROM computos WHERE id=? AND obra_id=?', (b.get('computo_id'), oid)).fetchone()
+    if k is None or k['estado'] != 'presentado':
+        raise ApiError(409, 'sólo se emite el certificado de un cómputo presentado de esta obra')
+    if _certificado_de(c, k['id']):
+        raise ApiError(409, 'ese cómputo ya tiene su certificado')
+    if hoy() > fecha_fin(obra) and not _plazo_vencida_activo(c, oid):
+        raise ApiError(409, MSG_PLAZO_VENCIDO)
+    antes = c.execute("SELECT id FROM computos WHERE obra_id=? AND estado!='eliminado' AND mes<?", (oid, k['mes'])).fetchall()
+    if any(_certificado_de(c, a['id']) is None for a in antes):
+        raise ApiError(409, 'hay meses anteriores sin certificado: se certifica en orden')
+    items = _items(c, oid)
+    precios = {i['id']: i['precio_oferta_cent'] for i in items}
+    monto = _importe_computo(c, k['id'], precios)
+    obs = (b.get('observaciones') or '').strip()[:1000] or None
+    if monto == 0 and (obs is None or len(obs) < 5):
+        raise ApiError(400, 'El monto a certificar es $ 0: las observaciones son obligatorias.')
+    previos = c.execute("SELECT id FROM computos WHERE obra_id=? AND estado='presentado' AND mes<?", (oid, k['mes'])).fetchall()
+    anterior = sum(_importe_computo(c, p['id'], precios) for p in previos)
+    liq = liquidar(monto, obra['anticipo_pct'], obra['fondo_reparo_pct'], obra['fondo_inspeccion_pct'], cfg_obra(ente)['iva_pct'])
+    liq.update(importe_acumulado_cent=anterior + monto, importe_anterior_cent=anterior,
+               pct_avance_acumulado=pct(anterior + monto, monto_contrato_cent(items)), personal_afectado=k['personal_afectado'],
+               es_final=bool(k['es_final']))
+    numero = (c.execute("SELECT COALESCE(MAX(numero),0) FROM certificados WHERE obra_id=? AND estado!='anulado'", (oid,)).fetchone()[0]) + 1
+    cur = c.execute(
+        '''INSERT INTO certificados(obra_id,ente_id,numero,tipo,computo_id,estado,monto_cent,liquidacion_json,observaciones,emitido_por,emitido_at)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?)''',
+        (oid, ente['id'], numero, 'final' if k['es_final'] else 'parcial', k['id'], 'pendiente', monto,
+         json.dumps(liq), obs, u['id'], core.iso(core.now())))
+    core.audit(c, ente['id'], 'certificado', cur.lastrowid, 'emitido', u['id'], {'numero': numero, 'mes': k['mes'], 'monto_cent': monto})
+    return 201, _ficha_certificado(c, obra, core.fila(c.execute('SELECT * FROM certificados WHERE id=?', (cur.lastrowid,)).fetchone()))
+
+
+def _ficha_certificado(c, obra, cert):
+    k = core.fila(c.execute('SELECT * FROM computos WHERE id=?', (cert['computo_id'],)).fetchone())
+    d = _resumen_certificado(c, cert)
+    d.update(
+        obra={'id': obra['id'], 'denominacion': obra['denominacion'], 'contratista': obra['contratista'], 'fecha_replanteo': obra['fecha_replanteo'],
+              'plazo_dias': obra['plazo_dias']},
+        liquidacion=json.loads(cert['liquidacion_json'] or '{}'), observaciones=cert['observaciones'],
+        leyenda={'pendiente': 'NO AUTORIZADO', 'anulado': 'ANULADO'}.get(cert['estado']), emitido_at=cert['emitido_at'],
+        motivo_anulacion=cert['motivo_anulacion'],
+        firmas=[{'cargo': 'Inspector de obra (mide)', 'nombre': _nombre(c, k['presentado_por']), 'fecha': k['presentado_at']},
+                {'cargo': 'Administrativo (emite)', 'nombre': _nombre(c, cert['emitido_por']), 'fecha': cert['emitido_at']},
+                {'cargo': 'Autoridad (autoriza)', 'nombre': _nombre(c, cert['autorizado_por']), 'fecha': cert['autorizado_at']}],
+        nota_firmas=f'Firmas simuladas: el certificado real lleva {FIRMAS_REALES}.')
+    return d
+
+
+def ficha_certificado(c, ctx, cid):
+    u, ente, obra, cert = _cert_para(c, ctx, cid)
+    return 200, _ficha_certificado(c, obra, cert)
+
+
+def listar_certificados(c, ctx, oid):
+    u, ente, obra = _obra_para(c, ctx, oid=oid)
+    return 200, [_resumen_certificado(c, core.fila(r)) for r in c.execute('SELECT * FROM certificados WHERE obra_id=? ORDER BY numero, id', (oid,))]
+
+
+def autorizar_certificado(c, ctx, cid):
+    """La autoridad con rol habilitante autoriza: desde esa fecha corre el vencimiento y ya no se puede anular."""
+    u, ente, obra, cert = _cert_para(c, ctx, cid, 'autorizar_certificado')
+    if cert['estado'] != 'pendiente':
+        raise ApiError(409, f'el certificado está {cert["estado"]}: sólo se autoriza uno pendiente')
+    if cert['emitido_por'] == u['id']:
+        raise ApiError(403, 'quien emite un certificado no puede autorizarlo')
+    fecha_txt = ctx['body'].get('fecha_autorizacion')
+    fecha = parse_fecha(fecha_txt, 'fecha_autorizacion') if fecha_txt else hoy()
+    if fecha > hoy():
+        raise ApiError(400, 'la fecha de autorización no puede ser futura')
+    if fecha < parse_fecha(cert['emitido_at'][:10], 'emitido_at'):
+        raise ApiError(400, 'la fecha de autorización no puede ser anterior a la emisión del certificado')
+    vence = fecha + timedelta(days=obra['plazo_venc_cert_dias'])
+    c.execute("""UPDATE certificados SET estado='autorizado', autorizado_por=?, autorizado_at=?, fecha_autorizacion=?, vence_at=? WHERE id=?""",
+              (u['id'], core.iso(core.now()), fecha.strftime('%Y-%m-%d'), vence.strftime('%Y-%m-%d'), cid))
+    core.audit(c, ente['id'], 'certificado', cid, 'autorizado', u['id'], {'fecha': fecha.strftime('%Y-%m-%d'), 'vence': vence.strftime('%Y-%m-%d')})
+    return 200, _ficha_certificado(c, obra, core.fila(c.execute('SELECT * FROM certificados WHERE id=?', (cid,)).fetchone()))
+
+
+def anular_certificado(c, ctx, cid):
+    u, ente, obra, cert = _cert_para(c, ctx, cid, 'gestionar_certificado')
+    if cert['estado'] == 'autorizado':
+        raise ApiError(409, 'un certificado autorizado ya no se puede anular')
+    if cert['estado'] != 'pendiente':
+        raise ApiError(409, f'el certificado ya está {cert["estado"]}')
+    ultimo = c.execute("SELECT MAX(numero) FROM certificados WHERE obra_id=? AND estado!='anulado'", (obra['id'],)).fetchone()[0]
+    if cert['numero'] != ultimo:
+        raise ApiError(409, 'Sólo se puede anular el último certificado generado. Anulá primero el posterior.')
+    motivo = core.texto(ctx['body'].get('motivo'), 5, 500, 'motivo')
+    c.execute("UPDATE certificados SET estado='anulado', anulado_por=?, anulado_at=?, motivo_anulacion=? WHERE id=?",
+              (u['id'], core.iso(core.now()), motivo, cid))
+    core.audit(c, ente['id'], 'certificado', cid, 'anulado', u['id'], {'motivo': motivo})
+    return 200, _ficha_certificado(c, obra, core.fila(c.execute('SELECT * FROM certificados WHERE id=?', (cid,)).fetchone()))
+
+
+def asignar_expediente(c, ctx, cid):
+    """Asigna el número de expediente. No puede repetirse entre certificados, salvo certificados de $ 0."""
+    u, ente, obra, cert = _cert_para(c, ctx, cid, 'gestionar_certificado')
+    if cert['estado'] == 'anulado':
+        raise ApiError(409, 'no se asigna expediente a un certificado anulado')
+    exp = str(ctx['body'].get('expediente') or '').strip()
+    if not EXPEDIENTE_RE.match(exp):
+        raise ApiError(400, 'el expediente debe tener el formato 0000-000000/0000 (opcional /A000 para un anexo)')
+    for otro in c.execute("SELECT id, monto_cent FROM certificados WHERE obra_id=? AND expediente_externo=? AND estado!='anulado' AND id!=?",
+                          (obra['id'], exp, cid)):
+        if cert['monto_cent'] != 0 or otro['monto_cent'] != 0:
+            raise ApiError(409, 'ese expediente ya está asignado a otro certificado (sólo pueden compartirlo los certificados de $ 0)')
+    c.execute('UPDATE certificados SET expediente_externo=? WHERE id=?', (exp, cid))
+    core.audit(c, ente['id'], 'certificado', cid, 'expediente', u['id'], {'expediente': exp})
+    return 200, _ficha_certificado(c, obra, core.fila(c.execute('SELECT * FROM certificados WHERE id=?', (cid,)).fetchone()))
+
+
 RUTAS = [
+    ('POST', r'^/obras/(\d+)/certificados$', emitir_certificado),
+    ('GET', r'^/obras/(\d+)/certificados$', listar_certificados),
+    ('GET', r'^/certificados/(\d+)$', ficha_certificado),
+    ('POST', r'^/certificados/(\d+)/autorizar$', autorizar_certificado),
+    ('POST', r'^/certificados/(\d+)/anular$', anular_certificado),
+    ('POST', r'^/certificados/(\d+)/expediente$', asignar_expediente),
     ('GET', r'^/obras$', listar_obras),
     ('GET', r'^/obras/(\d+)$', ficha_obra),
     ('GET', r'^/obras/(\d+)/curva$', curva_obra),

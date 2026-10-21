@@ -233,15 +233,28 @@ def sembrar_obra(s, simples):
     c.commit()
     ids = {r['nro']: r['id'] for r in c.execute('SELECT id, nro FROM items_obra WHERE obra_id=?', (oid,))}
     ideal = ideal_de_obra(m(0))
-    insp = simples['inspector']
-    for k in range(1):
+    insp, admin, autoridad = simples['inspector'], simples['administrativo'], simples['autoridad']
+    for k in range(4):  # cuatro meses medidos; los tres primeros con certificado autorizado y el cuarto pendiente
         core.CLOCK['now'] = en(m(k + 1), 3, 10)
         _, v = obra.nuevo_computo(c, ctx(None, insp), oid)
         medido = [{'item_id': ids[nro], 'cantidad': round(meses.get(m(k), 0) * OBRA_RENDIMIENTO[k], 3)}
                   for nro, meses in ideal.items() if meses.get(m(k), 0)]
         obra.guardar_computo(c, ctx({'items': medido, 'personal_afectado': OBRA_PERSONAL[k]}, insp), v['id'])
         obra.presentar_computo(c, ctx(None, insp), v['id'])
+        core.CLOCK['now'] = en(m(k + 1), 4, 11)
+        _, cert = obra.emitir_certificado(c, ctx({'computo_id': v['id']}, admin), oid)
+        if k < 3:
+            core.CLOCK['now'] = en(m(k + 1), 6, 15)
+            obra.autorizar_certificado(c, ctx({}, autoridad), cert['id'])
+            core.CLOCK['now'] = en(m(k + 1), 7, 9)
+            obra.asignar_expediente(c, ctx({'expediente': f'0045-0{12340 + k}/2026'}, admin), cert['id'])
         c.commit()
+    # el mes en curso: un cómputo a medio cargar, para mostrar la edición
+    core.CLOCK['now'] = en(m(4), 2, 9)
+    _, v = obra.nuevo_computo(c, ctx(None, insp), oid)
+    parcial = [{'item_id': ids[nro], 'cantidad': round(meses.get(m(4), 0) * 0.4, 3)} for nro, meses in ideal.items() if nro in (6, 8) and meses.get(m(4), 0)]
+    obra.guardar_computo(c, ctx({'items': parcial}, insp), v['id'])
+    c.commit()
     return oid
 
 

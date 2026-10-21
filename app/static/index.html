@@ -205,6 +205,19 @@
   .barra-fija b { color: var(--acc); }
   .item-obra { display:grid; grid-template-columns: 2.4em 1fr; gap:2px 8px; padding:8px 0; border-bottom:1px solid var(--line); }
   .item-obra .n { color: var(--muted); font-weight:700; }
+  .cert { position:relative; border:2px solid var(--fg); border-radius:3px; padding:14px; background: var(--card); overflow:hidden; margin:10px 0; }
+  .cert-cab { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; font-size:17px; }
+  .marca-agua { position:absolute; top:42%; left:50%; transform:translate(-50%,-50%) rotate(-26deg); font-size:54px; font-weight:800; color: var(--bad);
+                opacity:.16; white-space:nowrap; pointer-events:none; letter-spacing:2px; }
+  .firmas { display:grid; grid-template-columns: repeat(auto-fit, minmax(170px,1fr)); gap:14px; margin:16px 0 6px; font-size:13px; }
+  .firmas .linea { border-top:1px solid var(--fg); margin-bottom:4px; height:22px; }
+  #certImpresion { display:none; }
+  @media print {
+    body > *:not(#certImpresion) { display:none !important; }
+    #certImpresion { display:block !important; }
+    body { background:#fff; color:#000; }
+    .cert { border-color:#000; background:#fff; color:#000; }
+  }
   .atrib { font-size:12px; color: var(--muted); }
   @media (max-width: 760px) {
     main { padding: 12px 12px 48px; }
@@ -238,6 +251,7 @@
 <nav id="tabs" aria-label="Secciones"></nav>
 <main id="vista" tabindex="-1"></main>
 <div id="toast" role="status" aria-live="polite"></div>
+<div id="certImpresion" aria-hidden="true"></div>
 
 <dialog id="dlgLogin" aria-labelledby="tLogin">
   <form id="formLogin" autocomplete="on">
@@ -1435,7 +1449,7 @@ async function cargarFicha(id, silencioso) {
 }
 
 // ---------- MODO OBRA (simulación de SIGO y SIGUE) ----------
-const pesos = c => (c === null || c === undefined) ? '—' : '$ ' + (c / 100).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const pesos = c => (c === null || c === undefined) ? '—' : (c < 0 ? '− ' : '') + '$ ' + (Math.abs(c) / 100).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const num = (x, d = 3) => (x === null || x === undefined) ? '—' : Number(x).toLocaleString('es-AR', { maximumFractionDigits: d });
 const pctTxt = x => (x === null || x === undefined) ? '—' : Number(x).toLocaleString('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 2 }) + ' %';
 const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
@@ -1516,7 +1530,9 @@ async function vistaObras() {
       <span><b>${esc(o.denominacion)}</b></span>
       <span class="meta">${esc(o.contratista)} · ${esc(ESTADO_OBRA[o.estado])}</span>
       <span class="meta">Comprometido a la fecha ${pctTxt(r.avance_ideal_pct)} · Certificado ${pctTxt(r.avance_certificado_pct)} · ${r.vencida ? 'Plazo vencido' : 'Quedan ' + r.dias_restantes + ' días'}</span>
-      ${r.mes_a_medir && rolEn('inspector') ? `<span class="meta"><b>Para medir: ${mesTxt(r.mes_a_medir)}</b></span>` : ''}</button></li>`;
+      ${r.mes_a_medir && rolEn('inspector') ? `<span class="meta"><b>Para medir: ${mesTxt(r.mes_a_medir)}</b></span>` : ''}
+      ${rolEn('administrativo') && r.computos_sin_certificado ? `<span class="meta"><b>${r.computos_sin_certificado} cómputo(s) esperan certificado</b></span>` : ''}
+      ${rolEn('autoridad') && r.certificados_pendientes ? `<span class="meta"><b>${r.certificados_pendientes} certificado(s) esperan autorización</b></span>` : ''}</button></li>`;
   }).join('') : '<li class="vacio">No hay obras asignadas a tu usuario.</li>';
   $('#listaObras').onclick = e => { const b = e.target.closest('[data-obra]'); if (b) { S.obra = { id: +b.dataset.obra, tab: null }; vistaObras(); } };
 }
@@ -1524,11 +1540,11 @@ async function vistaObras() {
 // Pestañas de una obra, agrupadas según el sistema al que pertenecen en esta simulación
 function gruposObra() {
   return [
-    { grupo: 'SIGO · Contrato y certificación', tabs: [['resumen', 'Resumen'], ['computos', 'Cómputos']] },
+    { grupo: 'SIGO · Contrato y certificación', tabs: [['resumen', 'Resumen'], ['computos', 'Cómputos'], ['certificados', 'Certificados']] },
     { grupo: 'SIGUE · Campo', tabs: [['medicion', 'Medición del mes']] },
   ];
 }
-const tabInicialObra = () => rolEn('inspector') ? 'medicion' : 'resumen';
+const tabInicialObra = () => rolEn('inspector') ? 'medicion' : rolEn('administrativo', 'autoridad') ? 'certificados' : 'resumen';
 
 async function vistaObra() {
   const f = await api('GET', '/obras/' + S.obra.id);
@@ -1543,7 +1559,7 @@ async function vistaObra() {
       <div id="obraCuerpo" aria-live="polite"></div></section>`;
   $('#obraVolver').onclick = () => { S.obra = { id: null, tab: null }; vistaObras(); };
   document.querySelector('.modulos').onclick = e => { const b = e.target.closest('[data-otab]'); if (b) { S.obra.tab = b.dataset.otab; vistaObra(); } };
-  const pintor = { resumen: tabResumen, computos: tabComputos, medicion: tabMedicion }[S.obra.tab];
+  const pintor = { resumen: tabResumen, computos: tabComputos, certificados: tabCertificados, medicion: tabMedicion }[S.obra.tab];
   await pintor(f);
 }
 
@@ -1609,6 +1625,104 @@ async function tabComputos(f) {
     $('#csvCom').onclick = () => csvComputo(k, f);
     $('#detCom').scrollIntoView({ block: 'start', behavior: 'smooth' });
   };
+}
+
+// ---------- Certificados (SIGO) ----------
+const ESTADO_CERT = { pendiente: ['Pendiente de autorización', 'aviso'], autorizado: ['Autorizado', 'ok'], anulado: ['Anulado', 'malo'] };
+
+function htmlCertificado(c) {
+  const l = c.liquidacion, o = c.obra, [txtEstado, tipoEstado] = ESTADO_CERT[c.estado];
+  const filas = [
+    ['1', 'Importe certificado acumulado a la fecha', l.importe_acumulado_cent],
+    ['2', 'Importe certificado anterior', l.importe_anterior_cent],
+    ['3', 'Importe del mes (1 − 2)', l.importe_mes_cent],
+    ['4', `Descuento de anticipo (${num(l.anticipo_pct, 2)} %)`, -l.descuento_anticipo_cent],
+    ['5', `Fondo de reparo (${num(l.fondo_reparo_pct, 2)} %)`, -l.fondo_reparo_cent],
+    ['6', l.fondo_inspeccion_pct > 0 ? `Fondo de inspección (${num(l.fondo_inspeccion_pct, 2)} %)` : 'NO contiene fondo de inspección', -l.fondo_inspeccion_cent],
+    ['7', 'Neto (3 − 4 − 5 − 6)', l.neto_cent],
+    ['8', `IVA ${num(l.iva_pct, 0)} %`, l.iva_cent],
+    ['9', 'A abonar al contratista (7 + 8)', l.a_abonar_cent]];
+  return `<div class="cert">
+    ${c.leyenda ? `<div class="marca-agua" aria-hidden="true">${esc(c.leyenda)}</div>` : ''}
+    <div class="cert-cab"><b>CERTIFICADO ${c.tipo === 'final' ? 'FINAL' : 'PARCIAL'} N° ${c.numero}</b>${etiqueta(txtEstado, tipoEstado)}</div>
+    <p class="small"><b>Simulación con datos ficticios. Sin validez legal.</b></p>
+    <p>${esc(o.denominacion)}<br>Contratista: ${esc(o.contratista)}<br>
+      Período medido: ${mesTxt(c.mes)} · Personal afectado: ${l.personal_afectado ?? '—'} · Avance acumulado: ${pctTxt(l.pct_avance_acumulado)}${l.es_final ? ' · <b>Cómputo final</b>' : ''}</p>
+    <div class="tabla-scroll"><table><thead><tr><th>N°</th><th>Concepto</th><th class="num">Monto</th></tr></thead><tbody>
+      ${filas.map(([n, t, v]) => `<tr${n === '9' ? ' style="font-weight:700"' : ''}><td>${n}</td><td>${esc(t)}</td><td class="num">${pesos(v)}</td></tr>`).join('')}</tbody></table></div>
+    ${c.observaciones ? `<p class="small">Observaciones: ${esc(c.observaciones)}</p>` : ''}
+    <p class="small">Expediente: ${c.expediente_externo ? esc(c.expediente_externo) : 'sin asignar'} · ${c.fecha_autorizacion ? 'Autorizado el ' + dia(c.fecha_autorizacion) + ' · Vence el ' + dia(c.vence_at) : 'Todavía no autorizado'}</p>
+    <div class="firmas">${c.firmas.map(f => `<div><div class="linea"></div><b>${esc(f.cargo)}</b><br>${f.nombre ? esc(f.nombre) + '<br>' + fmt(f.fecha) + ' (simulado)' : '<i>Pendiente</i>'}</div>`).join('')}</div>
+    <p class="small">${esc(c.nota_firmas)} La liquidación es simplificada: el certificado real tiene 17 conceptos.</p></div>`;
+}
+
+async function tabCertificados(f) {
+  const cont = $('#obraCuerpo'), rol = S.usuario.rol;
+  const lista = await api('GET', `/obras/${f.id}/certificados`);
+  const sin = f.computos.filter(k => k.estado === 'presentado' && !k.certificado);
+  const vigentes = lista.filter(c => c.estado !== 'anulado');
+  const ultimoNumero = vigentes.length ? vigentes[vigentes.length - 1].numero : null;
+  cont.innerHTML = `<p class="small">Cada certificado parcial sale de un cómputo presentado. Nace <b>pendiente de autorización</b>: lo emite el administrativo y lo autoriza la autoridad, que es otra persona.</p>
+    ${rol === 'administrativo' && sin.length ? `<h3>Cómputos esperando certificado (${sin.length})</h3>${sin.map(k => `<div class="tarjeta"><div class="row"><b>${mesTxt(k.mes)}</b>${etiqueta('Presentado', 'info')}${k.es_final ? etiqueta('Cómputo final', 'info') : ''}</div>
+      <div class="small">Importe del mes ${pesos(k.importe_mes_cent)} · Personal afectado: ${k.personal_afectado ?? '—'}</div>
+      <div class="row"><button type="button" data-emitir="${k.id}">Emitir certificado</button></div></div>`).join('')}` : ''}
+    <h3>Certificados (${lista.length})</h3>
+    ${lista.length ? lista.slice().reverse().map(c => `<div class="tarjeta"><div class="row"><b>Certificado ${c.tipo === 'final' ? 'final' : 'parcial'} N° ${c.numero}</b><span class="small">${mesTxt(c.mes)}</span>${etiqueta(ESTADO_CERT[c.estado][0], ESTADO_CERT[c.estado][1])}</div>
+      <div class="small">Importe del mes ${pesos(c.monto_cent)} · A abonar ${pesos(c.a_abonar_cent)}<br>Expediente: ${c.expediente_externo ? esc(c.expediente_externo) : 'sin asignar'}${c.vence_at ? ' · Vence el ' + dia(c.vence_at) : ''}</div>
+      <div class="row"><button type="button" class="${rol === 'autoridad' && c.estado === 'pendiente' ? '' : 'sec'}" data-cver="${c.id}">${rol === 'autoridad' && c.estado === 'pendiente' ? 'Ver y autorizar' : 'Ver el certificado'}</button></div></div>`).join('')
+      : '<p class="vacio small">Todavía no hay certificados.</p>'}
+    <div id="detCert" aria-live="polite"></div>`;
+  const abrir = async cid => {
+    const c = await api('GET', '/certificados/' + cid);
+    const esUltimoPendiente = c.estado === 'pendiente' && c.numero === ultimoNumero;
+    $('#detCert').innerHTML = `<h3>Detalle</h3>${htmlCertificado(c)}<div id="certMsg"></div>
+      <div class="row"><button type="button" class="sec" id="cImprimir">🖨 Imprimir</button>
+        ${rol === 'autoridad' && c.estado === 'pendiente' ? '<button type="button" id="cAutorizar">Autorizar certificado</button>' : ''}
+        ${rol === 'administrativo' && c.estado !== 'anulado' ? '<button type="button" class="sec" id="cExpediente">Asignar expediente</button>' : ''}
+        ${rol === 'administrativo' && esUltimoPendiente ? '<button type="button" class="sec" id="cAnular">Anular</button>' : ''}</div>`;
+    $('#detCert').scrollIntoView({ block: 'start', behavior: 'smooth' });
+    const refrescar = async txt => { toast(txt); S.obra.certAbrir = cid; await vistaObra(); };
+    $('#cImprimir').onclick = () => { $('#certImpresion').innerHTML = htmlCertificado(c); window.print(); };
+    if ($('#cAutorizar')) $('#cAutorizar').onclick = async () => {
+      const hoy = new Date().toISOString().slice(0, 10);
+      const r = await modal({ titulo: 'Autorizar el certificado', html: `<p>Vas a autorizar el <b>certificado N° ${c.numero}</b>. Desde la fecha de autorización corre su vencimiento y <b>ya no se podrá anular</b>.</p>
+        <label for="mFecha">Fecha de autorización</label><input id="mFecha" type="date" value="${hoy}" max="${hoy}"><p class="error err-dlg" role="alert"></p>`,
+        botones: [{ id: 'no', texto: 'Volver', cls: 'sec' }, { id: 'ok', texto: 'Autorizar', valor: d => d.querySelector('#mFecha').value,
+          validar: d => d.querySelector('#mFecha').value ? null : 'Elegí la fecha de autorización.' }] });
+      if (!r || r.id !== 'ok') return;
+      try { await api('POST', `/certificados/${cid}/autorizar`, { fecha_autorizacion: r.valor }); await refrescar('Certificado autorizado'); }
+      catch (err) { mensaje($('#certMsg'), err.message, false); }
+    };
+    if ($('#cAnular')) $('#cAnular').onclick = async () => {
+      const motivo = await pedirTexto({ titulo: 'Anular el certificado', etiqueta: 'Motivo de la anulación (queda registrado)', boton: 'Anular certificado' });
+      if (!motivo) return;
+      try { await api('POST', `/certificados/${cid}/anular`, { motivo }); toast('Certificado anulado'); S.obra.certAbrir = null; await vistaObra(); }
+      catch (err) { mensaje($('#certMsg'), err.message, false); }
+    };
+    if ($('#cExpediente')) $('#cExpediente').onclick = async () => {
+      const r = await modal({ titulo: 'Asignar expediente', html: `<label for="mExp">Número de expediente</label><input id="mExp" placeholder="0000-000000/0000" value="${esc(c.expediente_externo || '')}" autocomplete="off">
+        <p class="small">Formato 0000-000000/0000, con /A000 si es un anexo. No puede repetirse, salvo entre certificados de $ 0.</p><p class="error err-dlg" role="alert"></p>`,
+        botones: [{ id: 'no', texto: 'Volver', cls: 'sec' }, { id: 'ok', texto: 'Guardar', valor: d => d.querySelector('#mExp').value.trim(),
+          validar: d => /^\d{4}-\d{6}\/\d{4}(\/A\d{1,4})?$/.test(d.querySelector('#mExp').value.trim()) ? null : 'El formato es 0000-000000/0000 (por ejemplo 0045-012345/2026).' }] });
+      if (!r || r.id !== 'ok') return;
+      try { await api('POST', `/certificados/${cid}/expediente`, { expediente: r.valor }); await refrescar('Expediente asignado'); }
+      catch (err) { mensaje($('#certMsg'), err.message, false); }
+    };
+  };
+  cont.onclick = async e => {
+    const v = e.target.closest('[data-cver]'), em = e.target.closest('[data-emitir]');
+    if (v) return abrir(+v.dataset.cver);
+    if (!em) return;
+    const k = sin.find(x => x.id === +em.dataset.emitir);
+    const r = await modal({ titulo: 'Emitir el certificado', html: `<p>Certificado del cómputo de <b>${mesTxt(k.mes)}</b>: importe del mes <b>${pesos(k.importe_mes_cent)}</b>. Va a nacer <b>pendiente de autorización</b>.</p>
+      <label for="mObs">Observaciones${k.importe_mes_cent === 0 ? ' (obligatorias: el monto es $ 0)' : ' (opcional)'}</label><textarea id="mObs" maxlength="1000"></textarea><p class="error err-dlg" role="alert"></p>`,
+      botones: [{ id: 'no', texto: 'Volver', cls: 'sec' }, { id: 'ok', texto: 'Emitir', valor: d => d.querySelector('#mObs').value.trim(),
+        validar: d => (k.importe_mes_cent === 0 && d.querySelector('#mObs').value.trim().length < 5) ? 'El monto es $ 0: escribí el motivo en las observaciones.' : null }] });
+    if (!r || r.id !== 'ok') return;
+    try { const c = await api('POST', `/obras/${f.id}/certificados`, { computo_id: k.id, observaciones: r.valor || null }); toast('Certificado emitido'); S.obra.certAbrir = c.id; await vistaObra(); }
+    catch (err) { toast(err.message); }
+  };
+  if (S.obra.certAbrir) { const id = S.obra.certAbrir; S.obra.certAbrir = null; await abrir(id); }
 }
 
 // ---------- Medición del mes (campo) ----------

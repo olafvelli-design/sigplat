@@ -555,13 +555,10 @@ class ObraBase(Base):
     def presentar(self, kid):
         return self.llamar(obra.presentar_computo, self.insp, None, None, kid)[1]
 
-    def certificado_directo(self, kid, monto=0):
-        """Sólo para la Fase 1: la emisión real de certificados llega en la Fase 2."""
-        n = self.c.execute('SELECT COALESCE(MAX(numero),0)+1 FROM certificados').fetchone()[0]
-        self.c.execute("""INSERT INTO certificados(obra_id,ente_id,numero,tipo,computo_id,estado,monto_cent,liquidacion_json,
-                          emitido_por,emitido_at) VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                       (self.oid, self.cba['id'], n, 'parcial', kid, 'pendiente', monto, '{}', self.admin, core.iso(core.now())))
-        self.c.commit()
+    def certificado_directo(self, kid, oid=None):
+        """Emite el certificado de un cómputo presentado, como lo haría el administrativo."""
+        return self.llamar(obra.emitir_certificado, self.admin, {'computo_id': kid, 'observaciones': 'Certificación de prueba'},
+                           None, oid or self.oid)[1]
 
     def computo_certificado(self, c2=0, c3=0, **extra):
         k = self.computo()
@@ -709,6 +706,194 @@ class ObraComputo(ObraBase):
 
     def test_otro_ente_no_ve_la_obra(self):
         self.assertEqual(self.error(obra.ficha_obra, self.auth_b, None, self.oid).status, 404)
+
+
+class Certificados(ObraBase):
+    def setUp(self):
+        super().setUp()
+        self.oid = self.nueva_obra(anticipo_pct=10, fondo_reparo_pct=5, fondo_inspeccion_pct=1)  # con anticipo y fondos
+        self.ids = {r['nro']: r['id'] for r in self.c.execute('SELECT id, nro FROM items_obra WHERE obra_id=?', (self.oid,))}
+
+    def presentado(self, c2=50, c3=0, **extra):
+        k = self.computo(self.oid)
+        self.guardar(k['id'], c2, c3, **extra)
+        self.presentar(k['id'])
+        return k['id']
+
+    def emitir(self, kid, quien=None, **cuerpo):
+        return self.llamar(obra.emitir_certificado, quien or self.admin, dict({'computo_id': kid}, **cuerpo), None, self.oid)[1]
+
+    def test_liquidacion_con_valores_calculados_a_mano(self):
+        liq = obra.liquidar(100000000, 10, 5, 1)  # $ 1.000.000,00
+        self.assertEqual((liq['descuento_anticipo_cent'], liq['fondo_reparo_cent'], liq['fondo_inspeccion_cent']),
+                         (10000000, 5000000, 1000000))
+        self.assertEqual((liq['neto_cent'], liq['iva_cent'], liq['a_abonar_cent']), (84000000, 17640000, 101640000))
+        redondeo = obra.liquidar(1000, 10, 5, 1)
+        self.assertEqual((redondeo['neto_cent'], redondeo['iva_cent'], redondeo['a_abonar_cent']), (840, 176, 1016))
+        self.assertEqual(obra.liquidar(25, 10, 0, 0)['descuento_anticipo_cent'], 3)  # 2,5 centavos sube: mitad hacia arriba
+
+    def test_el_certificado_nace_pendiente_con_la_liquidacion_del_computo(self):
+        cert = self.emitir(self.presentado(c2=50))
+        self.assertEqual((cert['numero'], cert['tipo'], cert['estado'], cert['leyenda']), (1, 'parcial', 'pendiente', 'NO AUTORIZADO'))
+        self.assertEqual(cert['monto_cent'], 125000000)  # 50 m3 x $ 25.000
+        liq = cert['liquidacion']
+        self.assertEqual((liq['importe_mes_cent'], liq['importe_acumulado_cent'], liq['importe_anterior_cent']), (125000000, 125000000, 0))
+        self.assertEqual(liq['a_abonar_cent'], liq['neto_cent'] + liq['iva_cent'])
+        self.assertEqual(cert['firmas'][1]['cargo'], 'Administrativo (emite)')
+        self.assertIsNone(cert['firmas'][2]['nombre'])  # la autorización todavía no se firmó
+
+    def test_el_segundo_certificado_resta_lo_ya_certificado(self):
+        self.emitir(self.presentado(c2=50))
+        cert2 = self.emitir(self.presentado(c2=30, c3=10))
+        liq = cert2['liquidacion']
+        self.assertEqual(cert2['numero'], 2)
+        self.assertEqual((liq['importe_anterior_cent'], liq['importe_mes_cent']), (125000000, 75000000 + 160000000))
+        self.assertEqual(liq['importe_acumulado_cent'], 125000000 + 75000000 + 160000000)
+
+    def test_solo_el_administrativo_emite(self):
+        kid = self.presentado()
+        for quien in (self.insp, self.auth, self.contr):
+            with self.assertRaises(core.ApiError) as e:
+                self.emitir(kid, quien)
+            self.assertEqual(e.exception.status, 403)
+
+    def test_un_monto_cero_exige_observaciones(self):
+        kid = self.presentado(c2=0, c3=0)
+        with self.assertRaises(core.ApiError) as e:
+            self.llamar(obra.emitir_certificado, self.admin, {'computo_id': kid}, None, self.oid)
+        self.assertEqual(e.exception.status, 400)
+        self.assertIn('$ 0', e.exception.msg)
+        cert = self.emitir(kid, observaciones='Mes sin avance: obra demorada por lluvias')
+        self.assertEqual(cert['monto_cent'], 0)
+
+    def test_no_se_emite_dos_veces_ni_de_un_borrador(self):
+        k = self.computo(self.oid)
+        with self.assertRaises(core.ApiError) as e:
+            self.emitir(k['id'])
+        self.assertEqual(e.exception.status, 409)
+        self.guardar(k['id'], 10)
+        self.presentar(k['id'])
+        self.emitir(k['id'])
+        with self.assertRaises(core.ApiError) as e:
+            self.emitir(k['id'])
+        self.assertIn('ya tiene su certificado', e.exception.msg)
+
+    def test_la_autoridad_autoriza_y_corre_el_vencimiento(self):
+        cert = self.emitir(self.presentado())
+        aut = self.llamar(obra.autorizar_certificado, self.auth, {}, None, cert['id'])[1]
+        self.assertEqual((aut['estado'], aut['leyenda']), ('autorizado', None))
+        self.assertEqual(aut['fecha_autorizacion'], self.hoy.strftime('%Y-%m-%d'))
+        self.assertEqual(aut['vence_at'], (self.hoy + timedelta(days=30)).strftime('%Y-%m-%d'))
+        self.assertEqual(aut['firmas'][2]['nombre'], 'Autoridad T')
+        with self.assertRaises(core.ApiError) as e:
+            self.llamar(obra.autorizar_certificado, self.auth, {}, None, cert['id'])
+        self.assertEqual(e.exception.status, 409)
+
+    def test_quien_emitio_no_puede_autorizar_y_solo_la_autoridad_autoriza(self):
+        cert = self.emitir(self.presentado())
+        for quien in (self.admin, self.insp, self.contr):
+            with self.assertRaises(core.ApiError) as e:
+                self.llamar(obra.autorizar_certificado, quien, {}, None, cert['id'])
+            self.assertEqual(e.exception.status, 403)
+        self.c.execute('UPDATE certificados SET emitido_por=? WHERE id=?', (self.auth, cert['id']))  # la misma persona emite y autoriza
+        self.c.commit()
+        with self.assertRaises(core.ApiError) as e:
+            self.llamar(obra.autorizar_certificado, self.auth, {}, None, cert['id'])
+        self.assertEqual(e.exception.status, 403)
+        self.assertIn('no puede autorizarlo', e.exception.msg)
+
+    def test_la_fecha_de_autorizacion_no_puede_ser_futura_ni_anterior_a_la_emision(self):
+        cert = self.emitir(self.presentado())
+        for fecha in ((self.hoy + timedelta(days=2)).strftime('%Y-%m-%d'), (self.hoy - timedelta(days=3)).strftime('%Y-%m-%d'), '2026-13-40'):
+            with self.assertRaises(core.ApiError) as e:
+                self.llamar(obra.autorizar_certificado, self.auth, {'fecha_autorizacion': fecha}, None, cert['id'])
+            self.assertEqual(e.exception.status, 400, fecha)
+
+    def test_solo_se_anula_el_ultimo_certificado_si_esta_pendiente(self):
+        c1 = self.emitir(self.presentado(c2=10))
+        c2 = self.emitir(self.presentado(c2=20))
+        with self.assertRaises(core.ApiError) as e:
+            self.llamar(obra.anular_certificado, self.admin, {'motivo': 'Error de carga'}, None, c1['id'])
+        self.assertIn('último certificado', e.exception.msg)
+        with self.assertRaises(core.ApiError) as e:
+            self.llamar(obra.anular_certificado, self.admin, {'motivo': 'x'}, None, c2['id'])  # motivo muy corto
+        self.assertEqual(e.exception.status, 400)
+        anulado = self.llamar(obra.anular_certificado, self.admin, {'motivo': 'Error de carga'}, None, c2['id'])[1]
+        self.assertEqual((anulado['estado'], anulado['leyenda']), ('anulado', 'ANULADO'))
+        self.llamar(obra.anular_certificado, self.admin, {'motivo': 'Se anula también el anterior'}, None, c1['id'])
+
+    def test_un_certificado_autorizado_ya_no_se_anula(self):
+        cert = self.emitir(self.presentado())
+        self.llamar(obra.autorizar_certificado, self.auth, {}, None, cert['id'])
+        with self.assertRaises(core.ApiError) as e:
+            self.llamar(obra.anular_certificado, self.admin, {'motivo': 'Quiero anularlo'}, None, cert['id'])
+        self.assertEqual(e.exception.status, 409)
+        self.assertIn('autorizado', e.exception.msg)
+
+    def test_anular_libera_el_computo_y_el_numero(self):
+        kid = self.presentado(c2=10)
+        cert = self.emitir(kid)
+        with self.assertRaises(core.ApiError):  # con certificado el cómputo no se toca
+            self.llamar(obra.guardar_computo, self.insp, {'personal_afectado': 3}, None, kid)
+        self.llamar(obra.anular_certificado, self.admin, {'motivo': 'Se corrige el cómputo'}, None, cert['id'])
+        self.guardar(kid, 12)  # vuelve a ser editable
+        self.assertEqual(self.emitir(kid)['numero'], 1)  # el número se reutiliza porque el anulado no cuenta
+        self.assertEqual(self.c.execute("SELECT COUNT(*) FROM certificados WHERE estado='anulado'").fetchone()[0], 1)  # pero queda el registro
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.c.execute('DELETE FROM certificados')
+
+    def test_el_certificado_anulado_no_forma_parte_de_la_curva_real(self):
+        cert = self.emitir(self.presentado(c2=50))
+        self.assertEqual(self.llamar(obra.curva_obra, self.insp, None, None, self.oid)[1]['puntos'][0]['real_acum_cent'], 125000000)
+        self.llamar(obra.anular_certificado, self.admin, {'motivo': 'Error de medición'}, None, cert['id'])
+        self.assertIsNone(self.llamar(obra.curva_obra, self.insp, None, None, self.oid)[1]['puntos'][0]['real_acum_cent'])
+
+    def test_expediente_con_formato_y_sin_repetirse_salvo_certificados_de_cero(self):
+        c1 = self.emitir(self.presentado(c2=0), observaciones='Mes sin avance')
+        c2 = self.emitir(self.presentado(c2=0), observaciones='Otro mes sin avance')
+        c3 = self.emitir(self.presentado(c2=10))
+        asignar = lambda cid, exp: self.llamar(obra.asignar_expediente, self.admin, {'expediente': exp}, None, cid)[1]  # noqa: E731
+        with self.assertRaises(core.ApiError) as e:
+            asignar(c1['id'], '12345')
+        self.assertEqual(e.exception.status, 400)
+        self.assertEqual(asignar(c1['id'], '0045-012345/2026')['expediente_externo'], '0045-012345/2026')
+        asignar(c2['id'], '0045-012345/2026')  # dos certificados de $ 0 pueden compartir el expediente
+        with self.assertRaises(core.ApiError) as e:
+            asignar(c3['id'], '0045-012345/2026')  # uno con monto no
+        self.assertEqual(e.exception.status, 409)
+        asignar(c3['id'], '0045-012345/2026/A001')  # un anexo es otro expediente
+
+    def test_con_la_obra_vencida_el_certificado_tambien_exige_el_plazo(self):
+        oid = self.nueva_obra(plazo=30)
+        self.llamar(obra.registrar_plazo_vencida, self.admin, {'dias': 20}, None, oid)
+        k = self.computo(oid)
+        self.llamar(obra.guardar_computo, self.insp, {'items': [{'item_id': self.ids_de(oid)[2], 'cantidad': 5}], 'personal_afectado': 9}, None, k['id'])
+        self.llamar(obra.presentar_computo, self.insp, None, None, k['id'])
+        self.c.execute('DELETE FROM plazos_cert_vencida')  # el plazo de certificación se agotó
+        with self.assertRaises(core.ApiError) as e:
+            self.llamar(obra.emitir_certificado, self.admin, {'computo_id': k['id']}, None, oid)
+        self.assertEqual(e.exception.msg, obra.MSG_PLAZO_VENCIDO)
+
+    def ids_de(self, oid):
+        return {r['nro']: r['id'] for r in self.c.execute('SELECT id, nro FROM items_obra WHERE obra_id=?', (oid,))}
+
+    def test_la_ficha_de_la_obra_trae_certificados_y_pendientes(self):
+        k1 = self.presentado(c2=10)
+        ficha = self.llamar(obra.ficha_obra, self.auth, None, None, self.oid)[1]
+        self.assertEqual((ficha['resumen']['computos_sin_certificado'], ficha['resumen']['certificados_pendientes']), (1, 0))
+        self.emitir(k1)
+        ficha = self.llamar(obra.ficha_obra, self.auth, None, None, self.oid)[1]
+        self.assertEqual((ficha['resumen']['computos_sin_certificado'], ficha['resumen']['certificados_pendientes']), (0, 1))
+        self.assertEqual([c['numero'] for c in ficha['certificados']], [1])
+        self.assertEqual(ficha['resumen']['avance_certificado_pct'], 2.38)  # 10 m3 x $ 25.000 sobre un contrato de $ 10.500.000
+
+    def test_quien_no_ve_la_obra_no_ve_sus_certificados(self):
+        cert = self.emitir(self.presentado())
+        otro = self.usuario(self.cba, 'Otro inspector', 'inspector')
+        with self.assertRaises(core.ApiError) as e:
+            self.llamar(obra.ficha_certificado, otro, None, None, cert['id'])
+        self.assertEqual(e.exception.status, 404)
+        self.llamar(obra.ficha_certificado, self.contr, None, None, cert['id'])  # el contratista de la obra sí
 
 
 class CuentaVecino(ServidorHTTP):
