@@ -1828,7 +1828,7 @@ async function vistaObra() {
       <button type="button" id="atajoGrilla">← Todas las obras</button></nav>`;
   $('#obraVolver').onclick = $('#atajoGrilla').onclick = () => { S.obra = { id: null, tab: null }; vistaObras(); };
   document.querySelectorAll('[data-otab]').forEach(b => { b.onclick = () => { S.obra.tab = b.dataset.otab; vistaObra(); }; });
-  const pintor = { detalle: tabDetalle, computo: tabComputo, certificados: tabCertificados, modificaciones: tabModificaciones, legajo: tabLegajo, libro: tabLibro,
+  const pintor = { detalle: tabDetalle, computo: tabComputo, certificados: tabCertificados, modificaciones: tabCronograma, legajo: tabLegajo, libro: tabLibro,
                    documentos: tabDocumentos, calidad: tabCalidad }[S.obra.tab];
   await pintor(f);
 }
@@ -2207,11 +2207,29 @@ async function pantallaComputo(f, kid, soy) {
 // ---------- Modificaciones de la obra (SIGO): curva ideal y ampliación de plazo ----------
 const TIPO_MOD = { MCI: 'Modificación de curva ideal', AP: 'Ampliación de plazo' };
 
+// Modificar cronograma: una sola pantalla con las curvas (original, vigente, avance real), las propuestas y su historial
+async function tabCronograma(f) {
+  const cont = $('#obraCuerpo'), r = f.resumen, cv = f.curva;
+  const ult = cv.real.length ? cv.real[cv.real.length - 1] : null;
+  cont.innerHTML = `<div class="kpis-obra">
+      <div class="card"><div class="l">Cronograma original</div><div class="v">Principal</div><div class="l">Plazo ${r.plazo.original_dias} días</div></div>
+      <div class="card"><div class="l">Cronograma vigente</div><div class="v">${esc(r.curva_vigente || 'Principal')}</div><div class="l">Plazo ${r.plazo.total_dias} días</div></div>
+      <div class="card"><div class="l">Avance real (certificado)</div><div class="v">${pctTxt(r.avance_certificado_pct)}</div><div class="l">${ult ? 'hasta ' + mesTxt(ult.mes) : 'sin certificados'}</div></div>
+    </div>
+    <h3>Curvas y avance real</h3>
+    <p class="small">Cada curva muestra cuánto había que avanzar en cada mes. La línea azul es lo certificado. Tildá las curvas para compararlas.</p>
+    <div id="graficoCronograma"></div>
+    <h3>Propuestas y autorizaciones</h3>
+    <div id="cronoLista"></div>`;
+  pintarGrafico(cv, $('#graficoCronograma'));
+  await tabModificaciones(f);
+}
+
 async function tabModificaciones(f) {
-  const cont = $('#obraCuerpo'), rol = S.usuario.rol;
+  const cont = $('#cronoLista') || $('#obraCuerpo'), rol = S.usuario.rol;
   const d = await api('GET', `/obras/${f.id}/modificaciones`);
   cont.innerHTML = `<p class="small">La curva ideal es lo comprometido mes a mes. Una <b>modificación de curva ideal</b> (se respalda con un Acta Acuerdo) la autoriza la autoridad antes de regir; una <b>ampliación de plazo</b> suma días y rige de inmediato. Vigente hoy: <b>${esc(d.vigente || '—')}</b> · Plazo ${d.plazo.original_dias} días${d.plazo.ampliaciones_dias ? ` + ${d.plazo.ampliaciones_dias} de ampliación` : ''}.</p>
-    ${rol === 'administrativo' ? `<div class="row"><button type="button" class="big" id="modNueva" ${d.hay_pendiente ? 'disabled' : ''}>+ Agregar modificación</button></div>${d.hay_pendiente ? '<p class="small">Hay una modificación pendiente: se autoriza antes de cargar otra.</p>' : ''}` : ''}
+    ${rol === 'administrativo' ? `<div class="row"><button type="button" class="big" id="modNueva" ${d.hay_pendiente ? 'disabled' : ''}>+ Proponer un cambio</button></div>${d.hay_pendiente ? '<p class="small">Hay una modificación pendiente: se autoriza antes de cargar otra.</p>' : ''}` : ''}
     <div id="modMsg"></div>
     ${d.modificaciones.length ? d.modificaciones.map(m => `<div class="tarjeta"><div class="row"><b>${esc(m.nombre)}</b><span class="small">${TIPO_MOD[m.tipo]}</span>
       ${etiqueta(m.estado === 'pendiente' ? 'Pendiente de autorización' : 'Autorizada', m.estado === 'pendiente' ? 'aviso' : 'ok')}${m.vigente ? etiqueta('Vigente', 'info') : ''}</div>
@@ -2233,7 +2251,29 @@ async function tabModificaciones(f) {
     const mesHoy = new Date().toISOString().slice(0, 7);
     const mesesVig = cvg0.meses, desdeIni = mesesVig.find(m => m >= mesHoy) || mesesVig[mesesVig.length - 1];
     const correr = (desde, n) => { const out = {}; for (const i of cvg0.items) { const q = {}; for (const [m, c] of Object.entries(i.ideal)) { const d = m >= desde ? sumarMes(m, n) : m; q[d] = (q[d] || 0) + c; } out[i.nro] = q; } return out; };
-    const r = await modal({ titulo: 'Agregar modificación', html: `<label for="mTipo">Tipo</label><select id="mTipo"><option value="MCI">Modificación de curva ideal (MCI)</option><option value="AP">Ampliación de plazo (AP)</option></select>
+    // Vista previa: cómo queda el avance mes a mes con la propuesta, antes de pedir la autorización
+    const precio = {};
+    for (const i of f.items) if (!i.es_titulo) precio[i.nro] = i.precio_oferta_cent;
+    const monto = cvg0.items.reduce((s, i) => s + Math.round(i.cantidad_oferta * (precio[i.nro] || 0)), 0);
+    const porMes = curva => { const t = {}; for (const nro in curva) for (const [m, c] of Object.entries(curva[nro])) t[m] = (t[m] || 0) + Math.round(c * (precio[nro] || 0)); return t; };
+    const acumulado = (t, meses) => { let a = 0; const out = {}; for (const m of meses) { a += t[m] || 0; out[m] = monto ? a / monto * 100 : 0; } return out; };
+    const previewCambio = dl => {
+      const box = dl.querySelector('#mPrev'); if (!box) return;
+      const tipo = dl.querySelector('#mTipo').value, dias = +dl.querySelector('#mDias').value || 0;
+      const conCorrer = dl.querySelector('input[name=mModo]:checked').value === 'correr';
+      const vig = {}; for (const i of cvg0.items) vig[i.nro] = i.ideal;
+      const n = tipo === 'AP' ? Math.max(1, Math.ceil(dias / 30)) : Math.max(1, Math.round(+dl.querySelector('#mN').value || 1));
+      const prop = conCorrer ? correr(dl.querySelector('#mDesde').value, n) : vig;
+      const meses = [...new Set([...Object.values(vig), ...Object.values(prop)].flatMap(o => Object.keys(o)))].sort();
+      const av = acumulado(porMes(vig), meses), ap = acumulado(porMes(prop), meses);
+      const filas = meses.map(m => `<tr><td>${mesTxt(m)}</td><td class="num">${pctTxt(av[m])}</td><td class="num">${pctTxt(ap[m])}</td><td class="num">${num(ap[m] - av[m], 2)} pp</td></tr>`).join('');
+      const fin = new Date(f.resumen.fecha_fin + 'T12:00:00'); fin.setDate(fin.getDate() + (tipo === 'AP' ? dias : 0));
+      box.innerHTML = `<b>Efecto de la propuesta</b>
+        <p class="small">${tipo === 'AP' ? `El plazo pasa de ${f.resumen.plazo.total_dias} a ${f.resumen.plazo.total_dias + dias} días y la terminación, al ${fin.toLocaleDateString('es-AR')}. La ampliación rige de inmediato.`
+          : 'Una modificación de curva ideal queda pendiente: el cronograma vigente no cambia hasta que la autoridad la autorice.'}${conCorrer ? '' : ' Sin cambios en las cantidades.'}</p>
+        <div class="tabla-scroll"><table><thead><tr><th>Mes</th><th class="num">Vigente</th><th class="num">Con el cambio</th><th class="num">Diferencia</th></tr></thead><tbody>${filas}</tbody></table></div>`;
+    };
+    const r = await modal({ titulo: 'Proponer un cambio al cronograma', html: `<label for="mTipo">Tipo</label><select id="mTipo"><option value="MCI">Modificación de curva ideal (MCI)</option><option value="AP">Ampliación de plazo (AP)</option></select>
       <label for="mTram">Número de trámite</label><input id="mTram" maxlength="40" autocomplete="off">
       <label for="mInst">Instrumento legal</label><input id="mInst" maxlength="80" autocomplete="off" placeholder="Acta Acuerdo N° …">
       <div id="mDiasCaja" hidden><label for="mDias">Días que se amplían</label><input id="mDias" type="number" min="1" max="1000" step="1" inputmode="numeric"></div>
@@ -2243,6 +2283,7 @@ async function tabModificaciones(f) {
         <div id="mCorrer" class="row"><label for="mDesde" style="margin:0">desde</label><select id="mDesde">${mesesVig.map(m => `<option value="${m}" ${m === desdeIni ? 'selected' : ''}>${mesTxt(m)}</option>`).join('')}</select>
           <label for="mN" style="margin:0">atrasar</label><input id="mN" type="number" min="1" max="24" step="1" value="1" style="max-width:80px"><span>mes(es)</span></div>
         <label><input type="radio" name="mModo" value="igual"> Dejar la curva como está</label></fieldset>
+      <div id="mPrev" class="sim" role="status"></div>
       <details><summary>Avanzado: cargar la curva con una planilla CSV</summary>
         <p class="small">Descargá la curva vigente, cambiá las cantidades de cada mes y subila. Si subís una planilla, reemplaza a lo de arriba.</p>
         <div class="row"><button type="button" class="sec" id="mBajar">⬇ Planilla de la curva (CSV)</button><button type="button" class="sec" id="mSubir">⬆ Subir planilla</button><input type="file" id="mArchivo" accept=".csv,text/csv" hidden></div></details>
@@ -2259,6 +2300,10 @@ async function tabModificaciones(f) {
         tipo.onchange = () => { dl.querySelector('#mDiasCaja').hidden = tipo.value !== 'AP'; ajustarN(); };
         dl.querySelector('#mDias').oninput = ajustarN;
         dl.querySelectorAll('input[name=mModo]').forEach(x => { x.onchange = () => { dl.querySelector('#mCorrer').hidden = x.value !== 'correr' || !x.checked; }; });
+        const actualizarPrev = () => previewCambio(dl);
+        dl.querySelectorAll('#mDesde, #mN, #mDias, #mTipo').forEach(x => { x.addEventListener('input', actualizarPrev); x.addEventListener('change', actualizarPrev); });
+        dl.querySelectorAll('input[name=mModo]').forEach(x => x.addEventListener('change', actualizarPrev));
+        actualizarPrev();
         dl.querySelector('#mBajar').onclick = async () => {
           const cvg = cvg0;
           const extra = tipo.value === 'AP' ? Math.ceil((+dl.querySelector('#mDias').value || 30) / 30) : 0;
