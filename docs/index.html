@@ -710,11 +710,11 @@ function tabsDisponibles() {
   if (rol === 'responsable') return [['intervenciones', 'Mis intervenciones'], ...publicas];
   if (rol === 'contratista' || rol === 'administrativo') return [['obras', 'Obras'], ...publicas];
   const t = rol === 'administrador' ? [['mapa', 'Tablero y mapa'], ['incidencias', 'Bandeja'], ['intervenciones', 'Intervenciones'], ['obras', 'Obras']]
-    : [['trabajo', 'Mi trabajo'], ['obras', 'Obras'], ['incidencias', 'Bandeja'], ['intervenciones', 'Intervenciones'], ['mapa', 'Tablero y mapa']];
+    : [['midia', 'Mi día'], ['obras', 'Obras'], ['trabajo', 'Reportes a inspeccionar'], ['incidencias', 'Bandeja'], ['intervenciones', 'Intervenciones'], ['mapa', 'Tablero y mapa']];
   return [...t, ...publicas];
 }
-const aterrizaje = rol => ({ inspector: 'trabajo', autoridad: 'trabajo', responsable: 'intervenciones', vecino: 'mis_reportes', administrador: 'mapa',
-  contratista: 'obras', administrativo: 'obras' }[rol] || 'ciudadano');
+const aterrizaje = rol => ({ inspector: 'midia', autoridad: 'midia', responsable: 'intervenciones', vecino: 'mis_reportes', administrador: 'mapa',
+  contratista: 'midia', administrativo: 'midia' }[rol] || 'ciudadano');
 
 function pintarTabs() {
   const tabs = tabsDisponibles();
@@ -797,7 +797,7 @@ function render() {
   limpiarMapas();
   cerrarDetalle();
   S.refrescar = null;
-  const vista = { ciudadano: vistaCiudadano, seguimiento: vistaSeguimiento, mis_reportes: vistaMisReportes, trabajo: vistaTrabajo, mapa: vistaMapa,
+  const vista = { ciudadano: vistaCiudadano, seguimiento: vistaSeguimiento, mis_reportes: vistaMisReportes, midia: vistaMiDia, trabajo: vistaTrabajo, mapa: vistaMapa,
                   incidencias: vistaIncidencias, intervenciones: vistaIntervenciones, obras: vistaObras }[S.tab];
   const r = vista();
   if (r && r.catch) r.catch(err => mensaje($('#vista'), err.message, false));
@@ -1093,6 +1093,58 @@ function itemIncidencia(i, sel, conEstado) {
 }
 
 // ---------- PERSONAL: Mi trabajo ----------
+// ---------- Mi día: lo que le toca hacer hoy a cada persona, con un botón que lleva directo a la tarea ----------
+// Se arma con los datos que ya devuelven /obras y /mi-trabajo; no crea datos nuevos.
+function tareasDeObra(o) {
+  const r = o.resumen, t = [], soyInsp = o.inspector_id && S.usuario && o.inspector_id === S.usuario.id;
+  if (rolEn('inspector') && soyInsp) {
+    if (r.computo_en_curso) t.push(['computo', 'Terminar el cómputo del mes (borrador)']);
+    else if (r.mes_a_medir) t.push(['computo', `Medir el avance de ${mesTxt(r.mes_a_medir)}`]);
+    if (r.computos_sin_certificado) t.push(['computo', `Certificar ${r.computos_sin_certificado} cómputo(s) presentado(s)`]);
+    if (r.documentos_por_revisar) t.push(['documentos', `Revisar ${r.documentos_por_revisar} documento(s)`]);
+    if (r.recepciones_por_revisar) t.push(['calidad', `Revisar ${r.recepciones_por_revisar} planilla(s) de hormigón`]);
+  }
+  if (rolEn('administrativo')) {
+    if (o.legajo_estado === 'en_armado') t.push(['legajo', 'Completar y publicar el legajo técnico']);
+    if (!o.inspector_id) t.push(['legajo', 'Asignar inspector a la obra']);
+    if (r.certificados_pendientes) t.push(['certificados', `Asignar expediente a ${r.certificados_pendientes} certificado(s)`]);
+  }
+  if (rolEn('autoridad')) {
+    if (r.certificados_pendientes) t.push(['certificados', `Autorizar ${r.certificados_pendientes} certificado(s)`]);
+    if (r.modificacion_pendiente) t.push(['modificaciones', 'Autorizar una modificación del cronograma']);
+  }
+  if (rolEn('contratista') && r.os_sin_responder) t.push(['libro', `Responder ${r.os_sin_responder} orden(es) de servicio`]);
+  return t;
+}
+
+async function vistaMiDia() {
+  $('#vista').innerHTML = `<section class="card" aria-labelledby="hDia"><h2 id="hDia">Mi día</h2>${AVISO_SIM}
+    <p class="small">Lo que te toca hacer, en orden de urgencia. Cada tarea te lleva directo a la pantalla donde se resuelve.</p>
+    <div id="diaObras" aria-live="polite"><p class="small">Cargando…</p></div>
+    <div id="diaReportes"></div></section>`;
+  const lista = await api('GET', '/obras');
+  const filas = lista.map(o => ({ o, tareas: tareasDeObra(o) })).filter(x => x.tareas.length || x.o.resumen.dias_restantes <= 30 || x.o.resumen.vencida);
+  const vence = o => o.resumen.vencida ? 'Plazo vencido' : `Vence en ${o.resumen.dias_restantes} días`;
+  $('#diaObras').innerHTML = filas.length ? filas.map(({ o, tareas }) => `<div class="tarjeta"><div class="row"><b>${esc(o.denominacion)}</b>
+      <span class="small">${esc(o.codigo || '')}</span>${o.resumen.dias_restantes <= 30 || o.resumen.vencida ? etiqueta(vence(o), o.resumen.vencida ? 'malo' : 'aviso') : ''}</div>
+      ${tareas.length ? `<div class="chips">${tareas.map(([tab, txt]) => `<button type="button" class="chip" data-dia-obra="${o.id}" data-dia-tab="${tab}">${esc(txt)}</button>`).join('')}</div>`
+        : '<p class="small">Sin tareas pendientes en esta obra.</p>'}</div>`).join('')
+    : '<p class="vacio small">No tenés tareas pendientes en las obras. Podés revisar las obras en "Obras".</p>';
+  $('#diaObras').onclick = e => {
+    const b = e.target.closest('[data-dia-obra]');
+    if (b) { S.obra = { id: +b.dataset.diaObra, tab: b.dataset.diaTab }; S.tab = 'obras'; render(); }
+  };
+  if (rolEn('inspector', 'autoridad')) {
+    try {
+      const c = (await api('GET', '/mi-trabajo')).contadores;
+      const n = c.para_inspeccionar + c.avances + c.evidencias + c.cierres;
+      $('#diaReportes').innerHTML = `<h3>Reportes de la ciudad</h3><p class="small">${n ? `Hay ${n} para revisar: ${c.para_inspeccionar} para inspeccionar, ${c.avances} avance(s), ${c.evidencias} foto(s) y ${c.cierres} cierre(s).` : 'No hay reportes pendientes.'}</p>
+        ${n ? '<div class="row"><button type="button" class="sec" data-dia-ir="trabajo">Ir a reportes a inspeccionar</button></div>' : ''}`;
+      $('#diaReportes').onclick = e => { if (e.target.closest('[data-dia-ir]')) { S.tab = 'trabajo'; render(); } };
+    } catch (err) { /* sin permiso para reportes: no se muestra la sección */ }
+  }
+}
+
 async function vistaTrabajo() {
   $('#vista').innerHTML = `<div class="resumen" id="resumen" aria-live="polite"></div>
     <div class="grid2 trab">
@@ -1751,8 +1803,9 @@ async function vistaObras() {
 // Pestañas de una obra, agrupadas según el sistema al que pertenecen en esta simulación
 function gruposObra() {
   return [
-    { grupo: 'SIGO · Contrato y certificación', tabs: [['detalle', 'Detalle de obra'], ['legajo', 'Legajo técnico'], ['computo', 'Cómputo métrico'], ['certificados', 'Certificados'], ['modificaciones', 'Modificaciones']] },
-    { grupo: 'SIGUE · Campo', tabs: [['libro', 'Libro de obra'], ['documentos', 'Documentación'], ['calidad', 'Calidad']] },
+    { grupo: 'La obra', tabs: [['detalle', 'Resumen de la obra'], ['legajo', 'Legajo técnico'], ['modificaciones', 'Modificar cronograma']] },
+    { grupo: 'Trabajo mensual', tabs: [['computo', 'Gestionar mes'], ['certificados', 'Certificados']] },
+    { grupo: 'Campo y documentación', tabs: [['libro', 'Libro de obra'], ['documentos', 'Documentación'], ['calidad', 'Calidad']] },
   ];
 }
 const tabInicialObra = () => 'detalle';

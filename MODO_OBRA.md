@@ -12,6 +12,12 @@
 
 El reparto SIGO/SIGUE es una hipótesis tomada del video y de lo indicado por el usuario. El manual de SIGO (v20) ubica también el legajo digital en SIGO. Hay que confirmarlo con un inspector real.
 
+## Pantallas por tarea (rediseño en curso)
+
+- **Mi día**: pantalla de entrada para inspector, autoridad, administrativo y contratista. Lista lo que le toca a cada persona en cada obra, con un botón que lleva directo a la pestaña donde se resuelve.
+- **Gestionar mes** (dentro de la obra): medir, presentar, certificar y seguimiento de la autorización, en una sola pantalla con pasos.
+- **Modificar cronograma**, **Legajo técnico** y **Resumen de la obra** agrupan lo que antes eran pestañas sueltas. Las categorías SIGO y SIGUE ya no aparecen en la navegación.
+
 ## Quién hace qué
 
 | Rol | Hace |
@@ -84,5 +90,6 @@ Escritura: `POST /obras/{id}/computos`, `/computos/{id}/guardar|presentar|elimin
 - Quién emite el certificado (acá: el inspector; lo autoriza otra persona).`n- Quién registra el plazo de certificación de obra vencida (acá: administrativo o autoridad).
 - Fórmula de liquidación: simplificada; no replica los 17 conceptos del certificado real.
 - Si el cómputo se carga en SIGUE o en SIGO.
+
 
 
