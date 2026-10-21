@@ -18,5 +18,16 @@
   },
   "duplicados": {"radio_m": 50, "dias": 30},
   "radio_evidencia_m": 500,
-  "referencia_externa": "SIGO (Provincia de Córdoba): integración NO implementada en el prototipo"
+  "referencia_externa": "SIGO (Provincia de Córdoba): integración NO implementada en el prototipo",
+  "obra": {
+    "hormigon": {
+      "tipos": ["H13", "H17", "H21", "H25"],
+      "asentamiento_tolerancia_cm": 2,
+      "temp_hormigon_min_c": 5,
+      "temp_hormigon_max_c": 30
+    },
+    "iva_pct": 21,
+    "alerta_vencimiento_dias": 30,
+    "nota": "Umbrales de EJEMPLO para la simulación del Modo obra: validar con un inspector real"
+  }
 }

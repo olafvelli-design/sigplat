@@ -27,14 +27,14 @@ Abrir <http://127.0.0.1:8000>. El `seed` recrea `data/sigplat.db` con datos fict
 python -m unittest discover -s tests -v
 ```
 
-59 pruebas: reglas de estado, separación de funciones, evidencias append-only, banderas de consistencia, aislamiento entre entes, permisos por rol, autenticación (contraseña, sesión, bloqueo, revocación), indicadores sin datos inventados, y pruebas HTTP. Usan base y fotos temporales.
+114 pruebas: reglas de estado, separación de funciones, evidencias append-only, banderas de consistencia, aislamiento entre entes, permisos por rol, autenticación (contraseña, sesión, bloqueo, revocación), indicadores sin datos inventados, y pruebas HTTP. Usan base y fotos temporales.
 
 ## Acceso
 
 - **Personal** (inspector, responsable, autoridad, administrador): usuario y contraseña en el encabezado. Contraseñas con PBKDF2-SHA256 (biblioteca estándar, 310 000 iteraciones). La sesión dura 8 h, se guarda sólo como hash y viaja en una cookie `HttpOnly; SameSite=Strict`. Tras 5 intentos fallidos el usuario queda bloqueado 5 minutos. Cada intento fallido queda en el historial.
 - **Ciudadano**: sin cuenta. Reporta y consulta con el código de seguimiento. Es una decisión deliberada: no pedimos datos personales para reportar. La identidad ciudadana se resolverá después con CiDi.
 - **Vecino (cuenta opcional)**: quien quiera puede tener cuenta. Reporta igual, y además ve **sus** reportes en "Mis reportes" con el mismo estado público que ve cualquiera. No accede a nada interno (tablero, bandeja, intervenciones). El vínculo reporte-cuenta no aparece en ninguna vista del personal.
-- **Cuentas simples de prueba** (CBA-PILOTO, usuario = contraseña): `vecino` / `vecino` e `inspector` / `inspector`. Existen sólo porque los datos son ficticios; en un despliegue real no se debe crear usuarios así.
+- **Cuentas simples de prueba** (CBA-PILOTO, usuario = contraseña): `vecino`, `inspector`, `contratista`, `administrativo` y `autoridad`. Existen sólo porque los datos son ficticios; en un despliegue real no se debe crear usuarios así.
 - **Datos de prueba**: `python scripts/seed.py` genera `data/credenciales_prueba.txt` con los usuarios y la contraseña común de prueba (definida en `scripts/seed.py`). Son de uso local. No usar en ningún despliegue real.
 
 Cada rol ve sólo lo que le corresponde:
@@ -63,6 +63,24 @@ Cada rol ve sólo lo que le corresponde:
 
 Las direcciones usan Nominatim de OpenStreetMap con un pedido por segundo como máximo. Es un servicio público gratuito: para un uso intensivo hay que instalar una instancia propia.
 
+## Modo obra: cómo trabajaría un inspector con SIGO y SIGUE
+
+> **Simulación con datos ficticios. Sin validez legal. No está conectada a SIGO ni a SIGUE.** Detalle, reglas y supuestos en [MODO_OBRA.md](MODO_OBRA.md).
+
+La pestaña **Obras** simula el trabajo sobre una obra pública (una estación transformadora **ficticia**), repartido como en la Provincia: **SIGO** guarda el contrato y el dinero; **SIGUE**, el trabajo de campo.
+
+| Rol | Cuenta de la demo | Qué hace en la obra |
+|---|---|---|
+| Inspector | `inspector` | Mide el avance del mes y presenta el cómputo; emite y cierra órdenes de servicio; revisa documentos y planillas de hormigón |
+| Contratista | `contratista` | Responde las órdenes de servicio; sube documentación; carga planillas de recepción de hormigón |
+| Administrativo | `administrativo` | Emite el certificado (nace pendiente); asigna el expediente; anula el último pendiente |
+| Autoridad | `autoridad` | Autoriza el certificado (no puede ser quien lo emitió) |
+
+- **SIGO · Contrato y certificación:** resumen con la curva de avance (comprometido contra certificado, con su desvío, `n` y nota), cómputos registrados y certificados con su vista de impresión ("NO AUTORIZADO" mientras estén pendientes).
+- **SIGUE · Campo:** medición del mes (cantidades del mes, no acumuladas; planilla CSV), libro de obra con órdenes de servicio numeradas e inmutables, documentación técnica con versiones, etiquetas, vencimientos y observaciones, y control de calidad del hormigón con avisos que informan y no deciden.
+- Las reglas salen del manual de SIGO (por ejemplo: no se abre un cómputo nuevo sin el certificado del mes anterior; un cómputo se corrige sólo mientras no exista el certificado; quien emite un certificado no lo autoriza). Cada una tiene su prueba.
+- Los umbrales de calidad (asentamiento, temperatura) son **valores de ejemplo** a validar con un inspector real.
+
 ## Cómo se agrega un ente
 
 1. Copiar `config/entes/cba_piloto.json` a `config/entes/<codigo>.json`.
@@ -78,6 +96,7 @@ Lo que **no** es configurable todavía: las transiciones de estado y los permiso
 |---|---|
 | `app/schema.sql` | Esquema SQLite. Todas las tablas llevan `ente_id`. Triggers que impiden borrar evidencias y editar el historial |
 | `app/core.py` | Reglas de negocio: estados, permisos, banderas, indicadores |
+| `app/obra.py` | Modo obra (simulación de SIGO y SIGUE): cómputo, certificados, libro de obra, documentación, calidad |
 | `app/server.py` | Servidor HTTP con biblioteca estándar |
 | `app/static/index.html` | Interfaz por roles: ciudadano, mapa y tablero, bandeja, intervenciones |
 | `config/entes/*.json` | Configuración por ente (CBA piloto y un ente ficticio B) |

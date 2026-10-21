@@ -23,10 +23,10 @@ DOCS = os.path.join(RAIZ, 'docs')
 BANNER_APP = ('<div class="banner">Prototipo de demostración con <b>datos ficticios</b> y contraseñas locales de prueba. '
               'No es un sistema de producción.</div>')
 BANNER_DEMO = ('<div class="banner"><b>Demo en el navegador</b>: corre en tu equipo, sin servidor, y guarda lo que hacés sólo en este '
-               'navegador. Datos <b>ficticios</b>. Reportar y consultar no requiere cuenta. Para entrar: usuario y contraseña '
-               '<code>vecino</code> (cuenta ciudadana, ve sus reportes) o <code>inspector</code> (inspección y tablero). '
-               'También <code>cba-piloto.responsable1</code> y <code>cba-piloto.autoridad1</code> con contraseña '
-               f'<code>{seed.PASSWORD_PRUEBA}</code>. '
+               'navegador. Datos <b>ficticios</b>. Reportar y consultar no requiere cuenta. Para entrar, usuario y contraseña iguales: '
+               '<code>vecino</code> (ve sus reportes), <code>inspector</code> (inspección, tablero y obras) y, para el <b>Modo obra</b> '
+               '(simulación de SIGO y SIGUE), <code>contratista</code>, <code>administrativo</code> y <code>autoridad</code>. '
+               f'También <code>cba-piloto.responsable1</code> con contraseña <code>{seed.PASSWORD_PRUEBA}</code>. '
                '<a href="#" onclick="reiniciarDemo();return false">Reiniciar demo</a></div>')
 ARCHIVOS = [
     ('app/core.py', os.path.join(RAIZ, 'app', 'core.py')),

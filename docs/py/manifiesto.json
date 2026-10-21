@@ -1,6 +1,7 @@
 {
   "archivos": [
     "app/core.py",
+    "app/obra.py",
     "app/schema.sql",
     "scripts/seed.py",
     "puente.py",
@@ -8,5 +9,5 @@
     "config/entes/ente_b_ficticio.json"
   ],
   "duracion_segundos": 14214263,
-  "version": "20261021012423"
+  "version": "20261021033635"
 }
