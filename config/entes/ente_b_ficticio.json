@@ -1,0 +1,19 @@
+{
+  "codigo": "ENTE-B",
+  "nombre": "Ente ficticio B (interior) - DATOS FICTICIOS",
+  "ficticio": true,
+  "centro": [-32.4080, -63.2440],
+  "categorias": [
+    "Pozo o hundimiento",
+    "Veredas rotas",
+    "Acceso rural intransitable",
+    "Alcantarilla obstruida"
+  ],
+  "tipos_intervencion": {
+    "mantenimiento": {"etiqueta": "Mantenimiento", "requiere_actividades": false},
+    "obra": {"etiqueta": "Obra", "requiere_actividades": true}
+  },
+  "duplicados": {"radio_m": 80, "dias": 60},
+  "radio_evidencia_m": 800,
+  "referencia_externa": null
+}

@@ -1,0 +1,12 @@
+# Datos generados localmente: base, fotos y credenciales de prueba (se regeneran con scripts/seed.py)
+data/
+
+# Python
+__pycache__/
+*.pyc
+
+# Editor y sistema
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

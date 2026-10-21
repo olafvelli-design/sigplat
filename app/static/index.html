@@ -1,0 +1,601 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SIGPLAT · prototipo</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root { --fg:#1f2933; --muted:#55606e; --line:#cfd6df; --bg:#f2f3f5; --card:#fff; --acc:#2c4a66; --head:#1d2f42; --thead:#e9ecf0; --warn:#8a5a00; --ok:#1e6b38; --bad:#a51d1d; }
+  :root[data-theme="dark"] { --fg:#e6e9ee; --muted:#9aa4b2; --line:#2e3642; --bg:#12171e; --card:#1a2029; --acc:#9db4cc; --head:#141e2a; --thead:#232b36; --warn:#fbbf24; --ok:#4ade80; --bad:#f87171; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --fg:#e6e9ee; --muted:#9aa4b2; --line:#2e3642; --bg:#12171e; --card:#1a2029; --acc:#9db4cc; --head:#141e2a; --thead:#232b36; --warn:#fbbf24; --ok:#4ade80; --bad:#f87171; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--fg); }
+  header { background: var(--head); color:#fff; padding: 10px 16px; display:flex; flex-wrap:wrap; gap:10px; align-items:center; border-bottom: 3px solid #b8975a; }
+  header label, header .small { color: #cdd9e6; }
+  header h1 { font-size: 17px; margin: 0 12px 0 0; font-weight: 700; letter-spacing: .2px; }
+  select, input, textarea, button { font: inherit; color: var(--fg); background: var(--card); border:1px solid var(--line); border-radius:3px; padding:6px 8px; }
+  header select, header input { border-color: #3d5a80; }
+  button { cursor:pointer; background: var(--acc); color:#fff; border-color: var(--acc); }
+  button.sec { background: transparent; color: var(--acc); }
+  header button.sec { color:#fff; border-color:#3d5a80; }
+  button:disabled { opacity:.5; cursor:default; }
+  textarea { width:100%; min-height:70px; }
+  .banner { background:#f7f1e0; color:#4d3a14; border-bottom:1px solid #d9c593; padding:6px 16px; font-size:13px; }
+  nav { display:flex; gap:0; padding: 0 16px; flex-wrap:wrap; background: var(--card); border-bottom:1px solid var(--line); }
+  nav button { background: transparent; color: var(--muted); border: 0; border-bottom: 3px solid transparent; border-radius:0; padding: 11px 14px; }
+  nav button:hover { color: var(--fg); }
+  nav button.on { color: var(--acc); border-bottom-color: var(--acc); font-weight:700; }
+  main { padding: 16px 16px 40px; max-width: 1200px; margin: 0 auto; }
+  .grid { display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
+  .card { background: var(--card); border:1px solid var(--line); border-top: 3px solid var(--acc); border-radius: 3px; padding: 14px; }
+  .card h2 { font-size: 15px; margin: 0 0 10px; color: var(--acc); text-transform: uppercase; letter-spacing: .3px; }
+  .card h2 { border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+  .kpis { display:grid; grid-template-columns: repeat(auto-fill, minmax(180px,1fr)); gap:10px; }
+  .kpi { border-top-width: 1px; border-left: 4px solid var(--acc); }
+  .kpi .v { font-size: 22px; font-weight:700; color: var(--acc); }
+  .kpi .l { font-size: 13px; color: var(--muted); }
+  .kpi .n { font-size: 11px; color: var(--muted); }
+  #mapa { height: 460px; border-radius: 3px; border:1px solid var(--line); }
+  #mapaCiud { height: 260px; border-radius: 3px; border:1px solid var(--line); }
+  table { width:100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align:left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { background: var(--thead); color: var(--fg); font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: .3px; }
+  tr:hover td { background: rgba(31,78,121,.05); }
+  .badge { display:inline-block; font-size:12px; padding:2px 8px; border-radius:3px; border:1px solid var(--line); background: var(--bg); margin-right:4px; }
+  .b-ok { color: var(--ok); } .b-warn { color: var(--warn); } .b-bad { color: var(--bad); } .b-muted { color: var(--muted); }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin: 6px 0; }
+  .row > * { flex: 0 0 auto; }
+  .row .grow { flex: 1 1 200px; }
+  label { font-size: 13px; color: var(--muted); display:block; margin-top: 8px; }
+  .msg { padding:8px 10px; border-radius:6px; margin:8px 0; font-size:14px; }
+  .msg.ok { background: rgba(21,128,61,.12); color: var(--ok); }
+  .msg.err { background: rgba(185,28,28,.12); color: var(--bad); }
+  .small { font-size: 13px; color: var(--muted); }
+  .fotos img { width: 110px; height: 80px; object-fit: cover; border-radius: 6px; border:1px solid var(--line); margin: 4px 6px 4px 0; }
+  .leyenda span { display:inline-block; margin-right:12px; font-size:13px; }
+  .dot { display:inline-block; width:11px; height:11px; border-radius:50%; margin-right:4px; vertical-align:middle; }
+  .hist { font-size: 13px; color: var(--muted); }
+  .hist div { padding: 3px 0; border-bottom: 1px dashed var(--line); }
+  @media (max-width: 760px) {
+    main { padding: 12px 16px 40px; }
+    .grid { grid-template-columns: 1fr; }
+    #mapa { height: 340px; }
+    table { font-size: 13px; }
+    th:nth-child(n+4), td:nth-child(n+4) { display:none; }
+    header { padding: 8px 12px; }
+    header h1 { width:100%; }
+    header .row, header label { width:100%; }
+    header select, header input { width:100%; }
+    header form.row > * { flex: 1 1 100%; }
+    nav { padding: 0 8px; overflow-x:auto; flex-wrap:nowrap; }
+    nav button { white-space:nowrap; padding: 11px 10px; }
+    .kpi .v { font-size: 20px; }
+    .card { padding: 12px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>SIGPLAT · prototipo</h1>
+  <label style="margin:0">Ente
+    <select id="selEnte"></select>
+  </label>
+  <form id="formLogin" class="row" style="margin:0" autocomplete="on">
+    <input id="lUsuario" placeholder="usuario" autocomplete="username" style="width:170px" required>
+    <input id="lClave" type="password" placeholder="contraseña" autocomplete="current-password" style="width:150px" required>
+    <button>Ingresar</button>
+  </form>
+  <span id="sesion" class="small"></span>
+</header>
+<div class="banner">Prototipo de demostración con <b>datos ficticios</b> y contraseñas locales de prueba. No es un sistema de producción.</div>
+<nav id="tabs"></nav>
+<main id="vista"></main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+"use strict";
+const ESTADO_COLOR = { recibida:'#6b7280', confirmada:'#d97706', descartada:'#cbd5e1', duplicada:'#6366f1',
+  con_intervencion:'#2563eb', resuelta:'#16a34a' };
+const ESTADO_TXT = { recibida:'Recibida', confirmada:'Confirmada', descartada:'Descartada', duplicada:'Duplicada',
+  con_intervencion:'En intervención', resuelta:'Resuelta', planificada:'Planificada', en_ejecucion:'En ejecución',
+  finalizada_declarada:'Finalizada (declarada)', validada:'Validada', cerrada:'Cerrada' };
+const FLAG_TXT = {
+  sin_fecha_de_captura: 'Sin fecha de captura declarada',
+  fecha_captura_posterior_a_recepcion: 'Fecha de captura posterior a la recepción',
+  fecha_captura_antigua: 'Captura con más de 48 h de antigüedad',
+  precision_geografica_baja_o_desconocida: 'Precisión geográfica baja o desconocida',
+  lejos_de_la_ubicacion_de_referencia: 'Lejos de la ubicación de referencia',
+};
+const flagTxt = f => FLAG_TXT[f] || (f.startsWith('foto_identica') ? 'Foto idéntica a otra evidencia (#' + f.split('_').pop() + ')' : f);
+
+const S = { ente: null, entes: [], usuarios: [], usuario: null, config: null, tab: 'ciudadano', mapa: null, capa: null };
+const $ = sel => document.querySelector(sel);
+const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+const fmt = iso => iso ? new Date(iso).toLocaleString('es-AR', {dateStyle:'short', timeStyle:'short'}) : '—';
+const dia = d => d ? new Date(d + 'T12:00:00').toLocaleDateString('es-AR') : '—';
+
+async function api(metodo, ruta, cuerpo) {
+  // La sesión viaja en una cookie HttpOnly que el navegador envía sola (mismo origen).
+  const opts = { method: metodo, headers: {}, credentials: 'same-origin' };
+  if (metodo === 'POST') {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(cuerpo ?? {});
+  }
+  const r = await fetch('/api' + ruta, opts);
+  const datos = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const e = new Error(datos.error || ('Error ' + r.status));
+    e.status = r.status;
+    throw e;
+  }
+  return datos;
+}
+
+function mensaje(el, texto, ok) {
+  el.innerHTML = '<div class="msg ' + (ok ? 'ok' : 'err') + '">' + esc(texto) + '</div>';
+}
+
+function leerFoto(archivo, maxLado = 1600) {
+  return new Promise((resolver, rechazar) => {
+    if (!archivo) return resolver(null);
+    const lector = new FileReader();
+    lector.onerror = () => rechazar(new Error('no se pudo leer la foto'));
+    lector.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const k = Math.min(1, maxLado / Math.max(img.width, img.height));
+        const cv = document.createElement('canvas');
+        cv.width = Math.round(img.width * k); cv.height = Math.round(img.height * k);
+        cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+        resolver(cv.toDataURL('image/jpeg', 0.82));
+      };
+      img.onerror = () => rechazar(new Error('formato de imagen no soportado'));
+      img.src = lector.result;
+    };
+    lector.readAsDataURL(archivo);
+  });
+}
+
+function geo() {
+  return new Promise((resolver, rechazar) => {
+    if (!navigator.geolocation) return rechazar(new Error('este navegador no entrega ubicación'));
+    navigator.geolocation.getCurrentPosition(
+      p => resolver({ lat: p.coords.latitude, lon: p.coords.longitude, precision_m: p.coords.accuracy }),
+      () => rechazar(new Error('no se obtuvo ubicación del dispositivo; marcá el punto en el mapa')),
+      { enableHighAccuracy: true, timeout: 12000 });
+  });
+}
+
+async function cargarFotos(raiz) {
+  for (const img of raiz.querySelectorAll('img[data-foto]')) {
+    try {
+      const r = await fetch(img.dataset.foto, { credentials: 'same-origin' });
+      if (r.ok) img.src = URL.createObjectURL(await r.blob());
+    } catch (_) { /* la foto no es crítica para la vista */ }
+  }
+}
+
+function tabsDisponibles() {
+  const t = [['ciudadano', 'Reportar (ciudadano)'], ['seguimiento', 'Seguimiento por código']];
+  if (S.usuario) {
+    const tablero = ['inspector', 'autoridad', 'administrador'].includes(S.usuario.rol);
+    if (tablero) t.push(['mapa', 'Mapa y tablero'], ['incidencias', 'Bandeja de incidencias']);
+    t.push(['intervenciones', S.usuario.rol === 'responsable' ? 'Mis intervenciones' : 'Intervenciones']);
+  }
+  return t;
+}
+
+function pintarTabs() {
+  const tabs = tabsDisponibles();
+  if (!tabs.some(t => t[0] === S.tab)) S.tab = 'ciudadano';
+  $('#tabs').innerHTML = tabs.map(([k, l]) => `<button data-tab="${k}" class="${k === S.tab ? 'on' : ''}">${esc(l)}</button>`).join('');
+  $('#tabs').onclick = e => { const b = e.target.closest('button[data-tab]'); if (b) { S.tab = b.dataset.tab; render(); } };
+}
+
+// Estado de sesión: el servidor dice quién es el usuario según la cookie. El ente sale del usuario.
+async function cargarSesion() {
+  S.entes = S.entes.length ? S.entes : await api('GET', '/entes');
+  S.usuario = null;
+  try {
+    const me = await api('GET', '/me');
+    S.usuario = me.usuario;
+    S.ente = me.ente;
+  } catch (err) {
+    if (err.status !== 401) throw err;
+  }
+  if (!S.ente || !S.entes.some(e => e.codigo === S.ente)) S.ente = S.entes[0].codigo;
+  S.config = S.entes.find(e => e.codigo === S.ente).config;
+  S.usuarios = S.usuario && S.usuario.rol !== 'responsable' ? await api('GET', '/usuarios') : [];
+  if (!tabsDisponibles().some(t => t[0] === S.tab)) S.tab = 'ciudadano';
+  pintarSesion();
+  render();
+}
+
+function pintarSesion() {
+  const logueado = !!S.usuario;
+  $('#selEnte').innerHTML = S.entes.map(e => `<option value="${esc(e.codigo)}">${esc(e.nombre)}</option>`).join('');
+  $('#selEnte').value = S.ente;
+  $('#selEnte').disabled = logueado;  // con sesión, el ente lo define el usuario
+  $('#formLogin').style.display = logueado ? 'none' : 'flex';
+  $('#sesion').innerHTML = logueado
+    ? `${esc(S.usuario.nombre)} · ${esc(S.usuario.rol)} <button class="sec" id="btnSalir">Salir</button>`
+    : '';
+  if (logueado) $('#btnSalir').onclick = cerrarSesion;
+}
+
+async function iniciarSesion(ev) {
+  ev.preventDefault();
+  try {
+    await api('POST', '/login', { login: $('#lUsuario').value.trim(), password: $('#lClave').value });
+    $('#lClave').value = '';
+    await cargarSesion();
+    S.tab = S.usuario.rol === 'responsable' ? 'intervenciones' : 'mapa';
+    render();
+  } catch (err) {
+    mensaje($('#vista'), err.message, false);
+  }
+}
+
+async function cerrarSesion() {
+  await api('POST', '/logout', {});
+  S.tab = 'ciudadano';
+  await cargarSesion();
+}
+
+function render() {
+  pintarTabs();
+  const v ={ ciudadano: vistaCiudadano, seguimiento: vistaSeguimiento, mapa: vistaMapa,
+              incidencias: vistaIncidencias, intervenciones: vistaIntervenciones }[S.tab];
+  S.capa = null;
+  v();
+}
+
+// ---------- CIUDADANO ----------
+function vistaCiudadano() {
+  const cats = S.config.categorias.map(c => `<option>${esc(c)}</option>`).join('');
+  $('#vista').innerHTML = `
+  <div class="grid">
+    <div class="card">
+      <h2>Reportar un problema en la vía pública</h2>
+      <p class="small">Ubicá el problema en el mapa o usá tu ubicación. Recibirás un código para seguirlo.</p>
+      <label>Categoría</label><select id="rCat">${cats}</select>
+      <label>Descripción (10 a 500 caracteres)</label><textarea id="rDesc" maxlength="500"></textarea>
+      <label>Foto (opcional)</label><input type="file" id="rFoto" accept="image/*" capture="environment">
+      <div class="row"><button class="sec" id="rGeo">Usar mi ubicación</button>
+        <span class="small" id="rCoords">Sin ubicación: tocá el mapa.</span></div>
+      <div id="mapaCiud"></div>
+      <div class="row"><button id="rEnviar">Enviar reporte</button></div>
+      <div id="rMsg"></div>
+    </div>
+    <div class="card"><h2>Qué pasa después</h2>
+      <ol class="small">
+        <li>Un inspector verifica el problema en el terreno.</li>
+        <li>Si corresponde, se crea una intervención (mantenimiento, orden de trabajo u obra).</li>
+        <li>Podés consultar el estado con tu código, sin iniciar sesión.</li>
+      </ol>
+      <p class="small">Un reporte no equivale a una evaluación técnica: se confirma o descarta en inspección.</p>
+    </div>
+  </div>`;
+  const mapa = L.map('mapaCiud').setView(S.config.centro, 14);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(mapa);
+  let marca = null, punto = null;
+  mapa.on('click', e => { punto = { lat: e.latlng.lat, lon: e.latlng.lng, precision_m: null }; poner(e.latlng); });
+  function poner(ll) {
+    if (marca) marca.setLatLng(ll); else marca = L.marker(ll).addTo(mapa);
+    $('#rCoords').textContent = `Ubicación: ${ll.lat.toFixed(5)}, ${ll.lng.toFixed(5)}`;
+  }
+  $('#rGeo').onclick = async () => {
+    try { punto = await geo(); poner({ lat: punto.lat, lng: punto.lon }); mapa.setView([punto.lat, punto.lon], 17);
+      $('#rCoords').textContent += ` (precisión ±${Math.round(punto.precision_m)} m)`; }
+    catch (err) { mensaje($('#rMsg'), err.message, false); }
+  };
+  $('#rEnviar').onclick = async () => {
+    const msg = $('#rMsg');
+    try {
+      if (!punto) throw new Error('falta la ubicación del problema');
+      const foto = await leerFoto($('#rFoto').files[0]);
+      const r = await api('POST', '/incidencias', {
+        ente: S.ente, categoria: $('#rCat').value, descripcion: $('#rDesc').value,
+        lat: punto.lat, lon: punto.lon, precision_m: punto.precision_m, canal: 'web',
+        capturada_at: new Date().toISOString().replace(/\.\d+Z$/, 'Z'), foto });
+      let txt = `Reporte recibido. Tu código de seguimiento es ${r.codigo}.`;
+      if (r.posibles_duplicados.length) txt += ` Hay ${r.posibles_duplicados.length} reporte(s) cercano(s) del mismo tipo; el municipio lo evaluará.`;
+      mensaje(msg, txt, true);
+      $('#rDesc').value = '';
+    } catch (err) { mensaje(msg, err.message, false); }
+  };
+}
+
+// ---------- SEGUIMIENTO ----------
+function vistaSeguimiento() {
+  $('#vista').innerHTML = `<div class="card" style="max-width:640px">
+    <h2>Seguimiento de un reporte</h2>
+    <div class="row"><input class="grow" id="sCod" placeholder="INC-XXXXXX"><button id="sBuscar">Consultar</button></div>
+    <div id="sRes"></div></div>`;
+  $('#sBuscar').onclick = async () => {
+    try {
+      const d = await api('GET', '/seguimiento/' + encodeURIComponent($('#sCod').value.trim().toUpperCase()));
+      $('#sRes').innerHTML = `<div class="msg ok">${esc(d.codigo)} · ${esc(d.categoria)}</div>
+        <p><b>Estado:</b> ${esc(d.estado)}<br><span class="small">Reportado: ${fmt(d.fecha_reporte)} · ${esc(d.ente)}</span></p>` +
+        (d.intervencion ? `<p><b>Intervención:</b> ${esc(d.intervencion.estado_publico)}
+          · plazo previsto ${dia(d.intervencion.fecha_planificada_fin)}${d.intervencion.fecha_cierre ? ' · cerrada ' + fmt(d.intervencion.fecha_cierre) : ''}</p>` : '');
+    } catch (err) { mensaje($('#sRes'), err.message, false); }
+  };
+}
+
+// ---------- MAPA Y TABLERO ----------
+async function vistaMapa() {
+  $('#vista').innerHTML = `<div class="kpis" id="kpis"></div>
+    <div class="grid" style="margin-top:14px">
+      <div class="card"><h2>Mapa operativo</h2>
+        <div class="leyenda small">${Object.entries(ESTADO_COLOR).map(([k, c]) => `<span><i class="dot" style="background:${c}"></i>${ESTADO_TXT[k]}</span>`).join('')}
+          <span>◯ incidencia · borde grueso = intervención</span></div>
+        <div id="mapa"></div></div>
+      <div class="card" id="ficha"><h2>Ficha</h2><p class="small">Seleccioná un punto del mapa.</p></div>
+    </div>`;
+  const d = await api('GET', '/indicadores');
+  $('#kpis').innerHTML = [
+    ['incidencias_pendientes', 'Incidencias pendientes', v => v],
+    ['antiguedad_mediana_pendientes_dias', 'Antigüedad mediana (días)', v => v],
+    ['tiempo_reporte_a_inspeccion_mediano_h', 'Reporte → inspección (h, mediana)', v => v],
+    ['intervenciones_activas', 'Intervenciones activas', v => v],
+    ['obras_atrasadas', 'Atrasadas respecto del plazo', v => v],
+    ['avances_pendientes_revision', 'Avances pendientes de revisión', v => v],
+    ['diferencia_declarado_validado_pp', 'Diferencia declarado − validado (pp)', v => v],
+    ['intervenciones_finalizadas', 'Finalizadas (validadas o cerradas)', v => v],
+    ['cumplimiento_plazos_pct', 'Cumplimiento de plazos (%)', v => v],
+    ['reincidencias_territoriales', 'Reincidencias territoriales', v => v],
+  ].map(([k, label]) => {
+    const x = d[k];
+    const val = x.valor === null || x.valor === undefined ? '—' : x.valor;
+    return `<div class="card kpi"><div class="l">${esc(label)}</div><div class="v">${esc(val)}</div>
+      <div class="n">${x.n ? 'n = ' + x.n + ' · ' : ''}${esc(x.nota)}</div></div>`;
+  }).join('');
+  const m = await api('GET', '/mapa');
+  if (S.mapa) S.mapa.remove();
+  S.mapa = L.map('mapa').setView(m.centro, 14);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(S.mapa);
+  for (const i of m.incidencias) {
+    L.circleMarker([i.lat, i.lon], { radius: 7, color: '#111', weight: 1, fillColor: ESTADO_COLOR[i.estado], fillOpacity: .9 })
+      .bindTooltip(`${esc(i.codigo)} · ${esc(i.categoria)} · ${ESTADO_TXT[i.estado]}`)
+      .on('click', () => fichaIncidencia(i.id)).addTo(S.mapa);
+  }
+  for (const t of m.intervenciones) {
+    L.circleMarker([t.lat, t.lon], { radius: 12, color: t.atrasada ? '#b91c1c' : '#111', weight: 4, fillColor: '#fff', fillOpacity: .6 })
+      .bindTooltip(`${esc(t.titulo)} · ${ESTADO_TXT[t.estado]}${t.atrasada ? ' · ATRASADA' : ''}`)
+      .on('click', () => fichaIntervencion(t.id)).addTo(S.mapa);
+  }
+}
+
+async function fichaIncidencia(id) {
+  const d = await api('GET', '/incidencias/' + id);
+  $('#ficha').innerHTML = `<h2>${esc(d.codigo)} · ${esc(d.categoria)}</h2>
+    <p><span class="badge">${ESTADO_TXT[d.estado]}</span>${d.gravedad ? '<span class="badge">Gravedad ' + d.gravedad + '</span>' : ''}
+    <span class="badge">Reportes agrupados: ${d.reportes_count}</span></p>
+    <p class="small">Reportado ${fmt(d.fecha_reporte)} · canal ${esc(d.canal)} · ${esc(d.descripcion)}</p>
+    <h2 style="margin-top:12px">Inspecciones</h2>
+    ${d.inspecciones.length ? d.inspecciones.map(i => `<div class="hist"><div>${fmt(i.fecha)} · ${esc(i.resultado)} · ${esc(i.observaciones || '')}</div></div>`).join('') : '<p class="small">Sin inspección todavía.</p>'}
+    <h2 style="margin-top:12px">Fotos</h2>
+    <div class="fotos">${d.evidencias.map(e => `<img alt="foto" data-foto="${e.url}">`).join('') || '<span class="small">Sin fotos.</span>'}</div>
+    ${d.intervencion_id ? `<p><button class="sec" onclick="fichaIntervencion(${d.intervencion_id})">Ver intervención</button></p>` : ''}
+    <h2 style="margin-top:12px">Historial</h2>
+    <div class="hist">${d.historial.map(h => `<div>${fmt(h.ocurrido_at)} · ${esc(h.accion)}</div>`).join('')}</div>`;
+  cargarFotos($('#ficha'));
+}
+
+async function fichaIntervencion(id) {
+  S.tab = 'intervenciones';
+  pintarTabs();
+  await vistaIntervenciones(id);
+}
+
+// ---------- BANDEJA DE INCIDENCIAS ----------
+async function vistaIncidencias() {
+  $('#vista').innerHTML = `<div class="grid">
+    <div class="card"><h2>Incidencias</h2>
+      <div class="row"><select id="fEst"><option value="">Todas</option>${Object.keys(ESTADO_TXT).slice(0, 6).map(k => `<option value="${k}">${ESTADO_TXT[k]}</option>`).join('')}</select>
+      <button class="sec" id="fAplicar">Filtrar</button></div>
+      <div id="tabla"></div></div>
+    <div class="card" id="detalle"><h2>Detalle</h2><p class="small">Elegí una incidencia.</p></div></div>`;
+  const cargar = async () => {
+    const est = $('#fEst').value;
+    const lista = await api('GET', '/incidencias' + (est ? '?estado=' + est : ''));
+    $('#tabla').innerHTML = `<table><tr><th>Código</th><th>Categoría</th><th>Estado</th><th>Reportada</th></tr>
+      ${lista.map(i => `<tr style="cursor:pointer" data-id="${i.id}"><td>${esc(i.codigo)}</td><td>${esc(i.categoria)}</td>
+      <td><span class="badge" style="border-color:${ESTADO_COLOR[i.estado]}">${ESTADO_TXT[i.estado]}</span></td><td>${fmt(i.fecha_reporte)}</td></tr>`).join('')}</table>`;
+    $('#tabla').onclick = e => { const tr = e.target.closest('tr[data-id]'); if (tr) detalleBandeja(+tr.dataset.id); };
+  };
+  $('#fAplicar').onclick = cargar;
+  await cargar();
+}
+
+async function detalleBandeja(id) {
+  const d = await api('GET', '/incidencias/' + id);
+  const puedeInspeccionar = d.estado === 'recibida' && S.usuario.rol !== 'administrador';
+  const puedeCrear = d.estado === 'confirmada' && S.usuario.rol === 'autoridad';
+  const otras = await api('GET', '/incidencias');
+  const candidatas = otras.filter(o => o.id !== id && ['confirmada', 'con_intervencion', 'recibida'].includes(o.estado));
+  $('#detalle').innerHTML = `<h2>${esc(d.codigo)} · ${esc(d.categoria)}</h2>
+    <p><span class="badge">${ESTADO_TXT[d.estado]}</span> <span class="small">${fmt(d.fecha_reporte)} · ${esc(d.descripcion)}</span></p>
+    <p class="small">Lat ${d.lat.toFixed(5)}, lon ${d.lon.toFixed(5)} · precisión ${d.precision_m ?? '—'} m</p>
+    <div class="fotos">${d.evidencias.map(e => `<img alt="foto" data-foto="${e.url}">`).join('')}</div>
+    ${puedeInspeccionar ? `<h2 style="margin-top:12px">Inspección</h2>
+      <label>Resultado</label><select id="iRes"><option value="confirmada">Confirmada (es un problema real)</option>
+        <option value="descartada">Descartada (no corresponde)</option><option value="duplicada">Duplicada de otra incidencia</option></select>
+      <label>Gravedad (si se confirma)</label><select id="iGrav"><option value="1">1 · baja</option><option value="2" selected>2 · media</option><option value="3">3 · alta</option></select>
+      <label>Incidencia principal (si es duplicada)</label><select id="iDup"><option value="">—</option>${candidatas.map(c => `<option value="${c.id}">${esc(c.codigo)} · ${esc(c.categoria)}</option>`).join('')}</select>
+      <label>Observaciones</label><textarea id="iObs"></textarea>
+      <div class="row"><button id="iGuardar">Registrar inspección</button></div><div id="iMsg"></div>` : ''}
+    ${puedeCrear ? `<div class="row"><button id="iCrear">Crear intervención con esta incidencia</button></div>` : ''}
+    <h2 style="margin-top:12px">Historial</h2><div class="hist">${d.historial.map(h => `<div>${fmt(h.ocurrido_at)} · ${esc(h.accion)}</div>`).join('')}</div>`;
+  cargarFotos($('#detalle'));
+  if (puedeInspeccionar) $('#iGuardar').onclick = async () => {
+    try {
+      await api('POST', `/incidencias/${id}/inspeccion`, { resultado: $('#iRes').value, gravedad: +$('#iGrav').value,
+        duplicada_de: $('#iDup').value ? +$('#iDup').value : null, observaciones: $('#iObs').value || 'Sin observaciones' });
+      mensaje($('#iMsg'), 'Inspección registrada.', true);
+      setTimeout(() => detalleBandeja(id), 400);
+    } catch (err) { mensaje($('#iMsg'), err.message, false); }
+  };
+  if (puedeCrear) $('#iCrear').onclick = () => formularioIntervencion(id, d);
+}
+
+async function formularioIntervencion(incId, inc) {
+  const resp = S.usuarios.filter(u => u.rol === 'responsable');
+  const tipos = Object.entries(S.config.tipos_intervencion).map(([k, v]) => `<option value="${k}">${esc(v.etiqueta)}</option>`).join('');
+  $('#detalle').innerHTML = `<h2>Nueva intervención</h2>
+    <p class="small">Origen: ${esc(inc.codigo)} · ${esc(inc.categoria)}</p>
+    <label>Tipo (circuito)</label><select id="nTipo">${tipos}</select>
+    <label>Título</label><input id="nTit" class="grow" style="width:100%" value="${esc(inc.categoria)} · ${esc(inc.codigo)}">
+    <label>Responsable</label><select id="nResp">${resp.map(r => `<option value="${r.id}">${esc(r.nombre)}</option>`).join('')}</select>
+    <label>Fecha planificada de finalización</label><input type="date" id="nFin">
+    <label>Actividades (una por línea; requeridas en orden de trabajo y obra)</label><textarea id="nAct"></textarea>
+    <div class="row"><button id="nGuardar">Crear intervención</button></div><div id="nMsg"></div>`;
+  const f = new Date(Date.now() + 14 * 864e5).toISOString().slice(0, 10);
+  $('#nFin').value = f;
+  $('#nGuardar').onclick = async () => {
+    try {
+      const d = await api('POST', '/intervenciones', { tipo: $('#nTipo').value, titulo: $('#nTit').value,
+        responsable_id: +$('#nResp').value, fecha_planificada_fin: $('#nFin').value, incidencia_ids: [incId],
+        actividades: $('#nAct').value.split('\n').map(s => s.trim()).filter(Boolean) });
+      S.tab = 'intervenciones';
+      render();
+      await vistaIntervenciones(d.id);
+    } catch (err) { mensaje($('#nMsg'), err.message, false); }
+  };
+}
+
+// ---------- INTERVENCIONES ----------
+async function vistaIntervenciones(abrirId) {
+  $('#vista').innerHTML = `<div class="grid">
+    <div class="card"><h2>Intervenciones</h2><div id="lista"></div></div>
+    <div class="card" id="ficha2"><h2>Ficha</h2><p class="small">Elegí una intervención.</p></div></div>`;
+  const lista = await api('GET', '/intervenciones');
+  $('#lista').innerHTML = lista.length ? `<table><tr><th>Título</th><th>Tipo</th><th>Estado</th><th>Plazo</th></tr>
+    ${lista.map(i => `<tr style="cursor:pointer" data-id="${i.id}"><td>${esc(i.titulo)}</td><td>${esc(S.config.tipos_intervencion[i.tipo]?.etiqueta || i.tipo)}</td>
+    <td>${ESTADO_TXT[i.estado]}${i.atrasada ? ' <span class="b-bad">· atrasada</span>' : ''}</td><td>${dia(i.fecha_planificada_fin)}</td></tr>`).join('')}</table>`
+    : '<p class="small">Sin intervenciones.</p>';
+  $('#lista').onclick = e => { const tr = e.target.closest('tr[data-id]'); if (tr) cargarFicha(+tr.dataset.id); };
+  if (abrirId) cargarFicha(abrirId);
+}
+
+async function cargarFicha(id) {
+  const d = await api('GET', '/intervenciones/' + id);
+  const yo = S.usuario;
+  const esResp = yo && yo.id === d.responsable_id;
+  const rol = yo ? yo.rol : null;
+  const acciones = [];
+  if (d.estado === 'planificada' && (rol === 'autoridad' || esResp)) acciones.push(['iniciar', 'Iniciar ejecución']);
+  if (d.estado === 'en_ejecucion' && esResp) acciones.push(['declarar_finalizacion', 'Declarar finalización']);
+  if (d.estado === 'finalizada_declarada' && (rol === 'inspector' || rol === 'autoridad')) {
+    acciones.push(['observar_cierre', 'Observar cierre']); acciones.push(['validar_cierre', 'Validar cierre']);
+  }
+  if (d.estado === 'validada' && rol === 'autoridad') acciones.push(['cerrar', 'Cerrar intervención']);
+
+  const actHtml = d.actividades.map(a => {
+    const pend = a.avances.filter(x => x.estado === 'pendiente');
+    const declarar = d.estado === 'en_ejecucion' && esResp
+      ? `<div class="row"><input type="number" min="0" max="100" step="5" value="${a.pct_declarado}" style="width:90px" data-pct="${a.id}"><span class="small">% declarado</span>
+         <input class="grow" placeholder="nota" data-nota="${a.id}"><button class="sec" data-decl="${a.id}">Declarar</button></div>` : '';
+    const validar = pend.length && (rol === 'inspector' || rol === 'autoridad')
+      ? pend.filter(x => x.declarado_por !== yo.id).map(x => `<div class="row small">Pendiente: ${x.pct}% (${fmt(x.declarado_at)})
+         <button class="sec" data-validar="${x.id}" data-pct="${x.pct}">Validar</button>
+         <button class="sec" data-observar="${x.id}">Observar</button></div>`).join('') : '';
+    return `<tr><td>${esc(a.nombre)}</td><td>${a.pct_declarado}%</td><td>${a.pct_validado}%</td>
+      <td>${a.diferencia_declarado_validado === null ? '<span class="small">sin validar</span>' : a.diferencia_declarado_validado + ' pp'}</td></tr>
+      ${declarar || validar ? `<tr><td colspan="4">${declarar}${validar}</td></tr>` : ''}`;
+  }).join('');
+
+  const evHtml = d.evidencias.map(e => {
+    const revisar = e.revision_estado === 'pendiente' && (rol === 'inspector' || rol === 'autoridad') && e.subida_por !== yo.id
+      ? `<button class="sec" data-rev="${e.id}" data-acc="validada">Validar foto</button> <button class="sec" data-rev="${e.id}" data-acc="observada">Observar</button>` : '';
+    return `<div class="card" style="margin:6px 0;padding:8px">
+      <div class="fotos"><img alt="evidencia" data-foto="${e.url}"></div>
+      <div class="small">#${e.id} · ${esc(e.tipo)} · recibida ${fmt(e.recibida_at)} · captura ${e.capturada_at ? fmt(e.capturada_at) : 'no declarada'}
+        · ubicación ${e.lat ? e.lat.toFixed(5) + ', ' + e.lon.toFixed(5) : '—'} ±${e.precision_m ?? '?'} m</div>
+      <div>${e.banderas.map(f => `<span class="badge b-warn">${esc(flagTxt(f))}</span>`).join('')}</div>
+      <div><span class="badge">${esc(e.revision_estado)}</span> ${e.observacion ? '<span class="small">' + esc(e.observacion) + '</span>' : ''}</div>
+      ${revisar}</div>`;
+  }).join('') || '<p class="small">Sin evidencias.</p>';
+
+  const subir = ['en_ejecucion', 'finalizada_declarada'].includes(d.estado) && yo && (esResp || rol === 'inspector' || rol === 'autoridad')
+    ? `<h2 style="margin-top:12px">Cargar evidencia</h2>
+      <div class="row"><select id="evTipo"><option value="avance">Avance</option><option value="cierre">Cierre</option><option value="inspeccion">Inspección</option></select>
+      <select id="evAct"><option value="">Sin actividad</option>${d.actividades.map(a => `<option value="${a.id}">${esc(a.nombre)}</option>`).join('')}</select></div>
+      <input type="file" id="evFoto" accept="image/*" capture="environment">
+      <div class="row"><button class="sec" id="evGeo">Usar mi ubicación</button><span class="small" id="evGeoTxt">Sin ubicación del dispositivo</span></div>
+      <div class="row"><button id="evSubir">Subir evidencia</button></div><div id="evMsg"></div>` : '';
+
+  $('#ficha2').innerHTML = `<h2>${esc(d.titulo)}</h2>
+    <p><span class="badge">${esc(S.config.tipos_intervencion[d.tipo]?.etiqueta || d.tipo)}</span>
+      <span class="badge">${ESTADO_TXT[d.estado]}</span>${d.atrasada ? '<span class="badge b-bad">Atrasada</span>' : ''}</p>
+    <p class="small">${d.expediente_externo ? 'Expediente ' + esc(d.sistema_externo || 'externo') + ': ' + esc(d.expediente_externo) + ' · ' : ''}Responsable: ${esc(d.responsable.nombre)} · plazo ${dia(d.fecha_planificada_fin)} · inicio ${fmt(d.fecha_inicio_real)}
+      ${d.fecha_fin_declarada ? ' · fin declarado ' + fmt(d.fecha_fin_declarada) : ''} ${d.fecha_cierre ? ' · cierre ' + fmt(d.fecha_cierre) : ''}</p>
+    <p class="small">Incidencias: ${d.incidencias.map(i => esc(i.codigo) + ' (' + ESTADO_TXT[i.estado] + ')').join(', ') || '—'}</p>
+    <div class="row">${acciones.map(([k, l]) => `<button data-acc="${k}">${esc(l)}</button>`).join('')}</div>
+    <div id="accMsg"></div>
+    <h2 style="margin-top:12px">Actividades: declarado vs validado</h2>
+    ${d.actividades.length ? `<table><tr><th>Actividad</th><th>Declarado</th><th>Validado</th><th>Diferencia</th></tr>${actHtml}</table>`
+      : '<p class="small">Esta intervención no tiene actividades desagregadas.</p>'}
+    <h2 style="margin-top:12px">Evidencias</h2>${evHtml}${subir}
+    <h2 style="margin-top:12px">Historial</h2><div class="hist">${d.historial.map(h => `<div>${fmt(h.ocurrido_at)} · ${esc(h.accion)}${h.detalle && h.detalle !== '{}' ? ' · ' + esc(h.detalle) : ''}</div>`).join('')}</div>`;
+
+  const acc = $('#ficha2');
+  const ejecutar = async (fn, okTxt) => {
+    try { await fn(); mensaje($('#accMsg'), okTxt, true); await cargarFicha(id); }
+    catch (err) { mensaje($('#accMsg'), err.message, false); }
+  };
+  acc.querySelectorAll('.row > button[data-acc]').forEach(b => b.onclick = () => {
+    const k = b.dataset.acc;
+    if (k === 'observar_cierre') { const o = prompt('Motivo de la observación:'); if (!o) return;
+      return ejecutar(() => api('POST', `/intervenciones/${id}/transicion`, { accion: k, observacion: o }), 'Cierre observado.'); }
+    ejecutar(() => api('POST', `/intervenciones/${id}/transicion`, { accion: k }), 'Transición registrada.');
+  });
+  acc.querySelectorAll('button[data-decl]').forEach(b => b.onclick = () => {
+    const aid = +b.dataset.decl;
+    ejecutar(() => api('POST', `/intervenciones/${id}/avances`, { actividad_id: aid,
+      pct: +acc.querySelector(`[data-pct="${aid}"]`).value, nota: acc.querySelector(`[data-nota="${aid}"]`).value }), 'Avance declarado (pendiente de validación).');
+  });
+  acc.querySelectorAll('button[data-validar]').forEach(b => b.onclick = () =>
+    ejecutar(() => api('POST', `/avances/${b.dataset.validar}/revision`, { accion: 'validar', pct_validado: +b.dataset.pct }), 'Avance validado.'));
+  acc.querySelectorAll('button[data-observar]').forEach(b => b.onclick = () => {
+    const o = prompt('Motivo de la observación del avance:'); if (!o) return;
+    ejecutar(() => api('POST', `/avances/${b.dataset.observar}/revision`, { accion: 'observar', observacion: o }), 'Avance observado.');
+  });
+  acc.querySelectorAll('button[data-rev]').forEach(b => b.onclick = () => {
+    const accion = b.dataset.acc; let o = null;
+    if (accion === 'observada') { o = prompt('Motivo de la observación de la foto:'); if (!o) return; }
+    ejecutar(() => api('POST', `/evidencias/${b.dataset.rev}/revision`, { accion, observacion: o }), 'Evidencia revisada.');
+  });
+  const geoBtn = $('#evGeo');
+  if (geoBtn) {
+    let pos = null;
+    geoBtn.onclick = async () => {
+      try { pos = await geo(); $('#evGeoTxt').textContent = `Ubicación ±${Math.round(pos.precision_m)} m`; }
+      catch (err) { mensaje($('#evMsg'), err.message, false); }
+    };
+    $('#evSubir').onclick = async () => {
+      try {
+        if (!pos) pos = { lat: d.lat, lon: d.lon, precision_m: null };
+        const foto = await leerFoto($('#evFoto').files[0]);
+        if (!foto) throw new Error('seleccioná una foto');
+        const body = { tipo: $('#evTipo').value, actividad_id: $('#evAct').value ? +$('#evAct').value : null,
+          foto, lat: pos.lat, lon: pos.lon, precision_m: pos.precision_m,
+          capturada_at: new Date().toISOString().replace(/\.\d+Z$/, 'Z') };
+        await api('POST', `/intervenciones/${id}/evidencias`, body);
+        mensaje($('#evMsg'), 'Evidencia recibida. Queda pendiente de revisión.', true);
+        setTimeout(() => cargarFicha(id), 500);
+      } catch (err) { mensaje($('#evMsg'), err.message, false); }
+    };
+  }
+  cargarFotos(acc);
+}
+
+// ---------- arranque ----------
+$('#selEnte').onchange = e => { S.ente = e.target.value; S.config = S.entes.find(x => x.codigo === S.ente).config; render(); };
+$('#formLogin').onsubmit = iniciarSesion;
+cargarSesion().catch(err => { $('#vista').innerHTML = `<div class="msg err">No se pudo cargar el prototipo: ${esc(err.message)}</div>`; });
+</script>
+</body>
+</html>
