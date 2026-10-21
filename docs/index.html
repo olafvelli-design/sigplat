@@ -120,21 +120,27 @@ window.SIGPLAT_DEMO = true;
   });
 
   // ---- Almacenamiento local: si el navegador no lo permite, la demo funciona igual pero no recuerda ----
-  const almacen = modo => new Promise((ok, mal) => {
+  // Cada operación abre y cierra su conexión, y termina recién cuando la transacción se confirmó en disco.
+  const conAlmacen = (modo, operacion) => new Promise((ok, mal) => {
     try {
       const r = indexedDB.open('sigplat-demo', 1);
       r.onupgradeneeded = () => r.result.createObjectStore('estado');
-      r.onsuccess = () => ok(r.result.transaction('estado', modo).objectStore('estado'));
       r.onerror = () => mal(r.error);
+      r.onsuccess = () => {
+        const db = r.result;
+        const t = db.transaction('estado', modo);
+        const req = operacion(t.objectStore('estado'));
+        t.oncomplete = () => { db.close(); ok(req.result); };
+        t.onerror = t.onabort = () => { db.close(); mal(t.error); };
+      };
     } catch (e) { mal(e); }
   });
-  const pedir = req => new Promise((ok, mal) => { req.onsuccess = () => ok(req.result); req.onerror = () => mal(req.error); });
-  const leerGuardado = async () => pedir((await almacen('readonly')).get('demo'));
-  const escribirGuardado = async valor => pedir((await almacen('readwrite')).put(valor, 'demo'));
-  const borrarGuardado = async () => pedir((await almacen('readwrite')).delete('demo'));
+  const leerGuardado = () => conAlmacen('readonly', s => s.get('demo'));
+  const escribirGuardado = valor => conAlmacen('readwrite', s => s.put(valor, 'demo'));
+  const borrarGuardado = () => conAlmacen('readwrite', s => s.delete('demo'));
 
   let temporizador = null;
-  const programarGuardado = () => { clearTimeout(temporizador); temporizador = setTimeout(guardar, 400); };
+  const programarGuardado = () => { clearTimeout(temporizador); temporizador = setTimeout(guardar, 150); };
   async function guardar() {
     try {
       const fotos = py.FS.readdir(FOTOS).filter(n => n !== '.' && n !== '..')
@@ -162,12 +168,14 @@ window.SIGPLAT_DEMO = true;
     await cargarScript(PYODIDE + 'pyodide.js');
     py = await loadPyodide({ indexURL: PYODIDE });
     await py.loadPackage('sqlite3');
-    const man = await (await fetchReal('py/manifiesto.json')).json();
+    // Siempre revalidados: GitHub Pages cachea 10 minutos y no debe mezclarse un archivo viejo con uno nuevo.
+    const fresco = ruta => fetchReal('py/' + ruta, { cache: 'no-cache' });
+    const man = await (await fresco('manifiesto.json')).json();
     version = man.version;
     for (const ruta of man.archivos) {
       const destino = '/sigplat/' + ruta;
       py.FS.mkdirTree(destino.slice(0, destino.lastIndexOf('/')));
-      py.FS.writeFile(destino, await (await fetchReal('py/' + ruta)).text());
+      py.FS.writeFile(destino, await (await fresco(ruta)).text());
     }
     py.runPython("import sys; sys.path.insert(0, '/sigplat')");
     puente = py.pyimport('puente');
