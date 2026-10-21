@@ -2175,24 +2175,39 @@ async function tabModificaciones(f) {
   if (!$('#modNueva')) return;
   $('#modNueva').onclick = async () => {
     let ideal = null;
+    const cvg0 = await api('GET', `/obras/${f.id}/curva-ideal`);
+    const sumarMes = (m, n) => { const t = +m.slice(0, 4) * 12 + (+m.slice(5, 7) - 1) + n; return `${Math.floor(t / 12)}-${String(t % 12 + 1).padStart(2, '0')}`; };
+    const mesHoy = new Date().toISOString().slice(0, 7);
+    const mesesVig = cvg0.meses, desdeIni = mesesVig.find(m => m >= mesHoy) || mesesVig[mesesVig.length - 1];
+    const correr = (desde, n) => { const out = {}; for (const i of cvg0.items) { const q = {}; for (const [m, c] of Object.entries(i.ideal)) { const d = m >= desde ? sumarMes(m, n) : m; q[d] = (q[d] || 0) + c; } out[i.nro] = q; } return out; };
     const r = await modal({ titulo: 'Agregar modificación', html: `<label for="mTipo">Tipo</label><select id="mTipo"><option value="MCI">Modificación de curva ideal (MCI)</option><option value="AP">Ampliación de plazo (AP)</option></select>
       <label for="mTram">Número de trámite</label><input id="mTram" maxlength="40" autocomplete="off">
       <label for="mInst">Instrumento legal</label><input id="mInst" maxlength="80" autocomplete="off" placeholder="Acta Acuerdo N° …">
       <div id="mDiasCaja" hidden><label for="mDias">Días que se amplían</label><input id="mDias" type="number" min="1" max="1000" step="1" inputmode="numeric"></div>
       <label for="mObs">Observaciones (opcional)</label><textarea id="mObs" maxlength="500"></textarea>
-      <p class="small"><b>Curva nueva.</b> Descargá la planilla con la curva vigente, modificá las cantidades de cada mes y subila. Si no subís nada, se copia la vigente.</p>
-      <div class="row"><button type="button" class="sec" id="mBajar">⬇ Planilla de la curva (CSV)</button><button type="button" class="sec" id="mSubir">⬆ Subir planilla</button><input type="file" id="mArchivo" accept=".csv,text/csv" hidden></div>
+      <fieldset><legend><b>Qué pasa con la curva</b></legend>
+        <label><input type="radio" name="mModo" value="correr" checked> Correr el avance pendiente (lo que falta se atrasa)</label>
+        <div id="mCorrer" class="row"><label for="mDesde" style="margin:0">desde</label><select id="mDesde">${mesesVig.map(m => `<option value="${m}" ${m === desdeIni ? 'selected' : ''}>${mesTxt(m)}</option>`).join('')}</select>
+          <label for="mN" style="margin:0">atrasar</label><input id="mN" type="number" min="1" max="24" step="1" value="1" style="max-width:80px"><span>mes(es)</span></div>
+        <label><input type="radio" name="mModo" value="igual"> Dejar la curva como está</label></fieldset>
+      <details><summary>Avanzado: cargar la curva con una planilla CSV</summary>
+        <p class="small">Descargá la curva vigente, cambiá las cantidades de cada mes y subila. Si subís una planilla, reemplaza a lo de arriba.</p>
+        <div class="row"><button type="button" class="sec" id="mBajar">⬇ Planilla de la curva (CSV)</button><button type="button" class="sec" id="mSubir">⬆ Subir planilla</button><input type="file" id="mArchivo" accept=".csv,text/csv" hidden></div></details>
       <p class="small" id="mEstadoCsv"></p><p class="error err-dlg" role="alert"></p>`,
       botones: [{ id: 'no', texto: 'Volver', cls: 'sec' }, { id: 'ok', texto: 'Cargar', valor: dl => ({ tipo: dl.querySelector('#mTipo').value, tramite: dl.querySelector('#mTram').value.trim(),
         instrumento: dl.querySelector('#mInst').value.trim(), dias: dl.querySelector('#mDias').value ? +dl.querySelector('#mDias').value : null,
-        observaciones: dl.querySelector('#mObs').value.trim() || null, ideal }),
+        observaciones: dl.querySelector('#mObs').value.trim() || null,
+        ideal: ideal || (dl.querySelector('input[name=mModo]:checked').value === 'correr' ? correr(dl.querySelector('#mDesde').value, Math.max(1, Math.round(+dl.querySelector('#mN').value || 1))) : null) }),
         validar: dl => dl.querySelector('#mTram').value.trim().length < 3 ? 'Escribí el número de trámite.' : dl.querySelector('#mInst').value.trim().length < 3 ? 'Escribí el instrumento legal.'
           : dl.querySelector('#mTipo').value === 'AP' && !(+dl.querySelector('#mDias').value >= 1) ? 'Indicá cuántos días se amplía el plazo.' : null }],
       alAbrir: dl => {
         const tipo = dl.querySelector('#mTipo');
-        tipo.onchange = () => { dl.querySelector('#mDiasCaja').hidden = tipo.value !== 'AP'; };
+        const ajustarN = () => { if (tipo.value === 'AP' && +dl.querySelector('#mDias').value >= 1) dl.querySelector('#mN').value = Math.ceil(+dl.querySelector('#mDias').value / 30); };
+        tipo.onchange = () => { dl.querySelector('#mDiasCaja').hidden = tipo.value !== 'AP'; ajustarN(); };
+        dl.querySelector('#mDias').oninput = ajustarN;
+        dl.querySelectorAll('input[name=mModo]').forEach(x => { x.onchange = () => { dl.querySelector('#mCorrer').hidden = x.value !== 'correr' || !x.checked; }; });
         dl.querySelector('#mBajar').onclick = async () => {
-          const cvg = await api('GET', `/obras/${f.id}/curva-ideal`);
+          const cvg = cvg0;
           const extra = tipo.value === 'AP' ? Math.ceil((+dl.querySelector('#mDias').value || 30) / 30) : 0;
           const meses = cvg.meses.slice();
           for (let i = 0; i < extra && meses.length; i++) { const [a, m] = meses[meses.length - 1].split('-').map(Number); meses.push(a + (m === 12 ? 1 : 0) + '-' + String(m % 12 + 1).padStart(2, '0')); }
