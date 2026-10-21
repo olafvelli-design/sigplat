@@ -27,7 +27,7 @@ Abrir <http://127.0.0.1:8000>. El `seed` recrea `data/sigplat.db` con datos fict
 python -m unittest discover -s tests -v
 ```
 
-44 pruebas: reglas de estado, separación de funciones, evidencias append-only, banderas de consistencia, aislamiento entre entes, permisos por rol, autenticación (contraseña, sesión, bloqueo, revocación), indicadores sin datos inventados, y pruebas HTTP. Usan base y fotos temporales.
+46 pruebas: reglas de estado, separación de funciones, evidencias append-only, banderas de consistencia, aislamiento entre entes, permisos por rol, autenticación (contraseña, sesión, bloqueo, revocación), indicadores sin datos inventados, y pruebas HTTP. Usan base y fotos temporales.
 
 ## Acceso
 
@@ -82,7 +82,7 @@ Cada intervención puede llevar `sistema_externo` (SIGO o SIGUE) y `expediente_e
 
 ## Demo en el navegador (GitHub Pages)
 
-La carpeta `docs/` es una versión estática que corre **sin servidor**: el mismo `core.py` y el mismo seed se ejecutan en el navegador con [Pyodide](https://pyodide.org) (Python en WebAssembly). Cada visitante tiene su propia base en memoria, con datos ficticios, que se reinicia al recargar la página. La primera carga descarga unos 10 MB.
+La carpeta `docs/` es una versión estática que corre **sin servidor**: el mismo `core.py` y el mismo seed se ejecutan en el navegador con [Pyodide](https://pyodide.org) (Python en WebAssembly). Cada visitante tiene su propia base con datos ficticios, guardada en su navegador (IndexedDB): los reportes y cambios sobreviven a recargar la página, no se comparten con nadie y el enlace "Reiniciar demo" vuelve al estado inicial. Otro navegador o un modo privado empiezan de cero. La primera carga descarga unos 10 MB.
 
 Para publicarla: Settings → Pages → *Deploy from a branch* → rama `main`, carpeta `/docs`.
 

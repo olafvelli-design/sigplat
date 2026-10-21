@@ -123,6 +123,21 @@ class ReporteCiudadano(Base):
         self.assertNotIn('observaciones', json.dumps(seg))
         self.assertEqual(seg['estado'], 'Recibida, en revisión')
 
+    def test_seguimiento_tolera_como_se_escribe_el_codigo(self):
+        r = self.reporte()
+        for escrito in (r['codigo'].lower(), ' ' + r['codigo'] + ' ', r['codigo'][4:].lower(), r['codigo'].replace('-', ' ')):
+            _, seg = self.llamar(core.seguimiento_publico, None, None, None, escrito)
+            self.assertEqual(seg['codigo'], r['codigo'])
+
+    def test_seguimiento_distingue_formato_invalido_de_inexistente(self):
+        with self.assertRaises(core.ApiError) as e:
+            self.llamar(core.seguimiento_publico, None, None, None, 'INC-12')
+        self.assertEqual(e.exception.status, 400)
+        with self.assertRaises(core.ApiError) as e:
+            self.llamar(core.seguimiento_publico, None, None, None, 'INC-ABCDEF')
+        self.assertEqual(e.exception.status, 404)
+        self.assertIn('INC-ABCDEF', e.exception.msg)
+
     def test_ubicacion_fuera_de_rango_se_rechaza(self):
         with self.assertRaises(core.ApiError):
             self.reporte(lat=200)
@@ -372,6 +387,11 @@ class ServidorHTTP(Base):
         self.assertEqual(st, 201)
         st, seg = self.pedir('GET', '/api/seguimiento/' + rep['codigo'])
         self.assertEqual(st, 200)
+        st, seg = self.pedir('GET', '/api/seguimiento/%20' + rep['codigo'].lower().replace('-', '%20') + '%20')
+        self.assertEqual(st, 200)  # el código llega codificado en la URL, con espacios y en minúsculas
+        self.assertEqual(seg['codigo'], rep['codigo'])
+        st, _ = self.pedir('GET', '/api/seguimiento/INC-12')
+        self.assertEqual(st, 400)  # formato inválido: se explica, no se responde "ruta inexistente"
         st, _ = self.pedir('GET', '/api/no-existe')
         self.assertEqual(st, 404)
         st, _ = self.pedir('POST', '/api/incidencias', {'ente': 'CBA-PILOTO', 'categoria': 'Bache', 'descripcion': 'corto'})

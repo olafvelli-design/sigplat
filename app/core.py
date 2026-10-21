@@ -19,6 +19,7 @@ import secrets
 import sqlite3
 import statistics
 from datetime import datetime, timedelta, timezone
+from urllib.parse import unquote
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR = os.path.dirname(APP_DIR)  # carpeta 01_PROTOTIPO
@@ -310,12 +311,28 @@ def reportar(c, ctx):
     return 201, {'codigo': codigo, 'estado': 'recibida', 'posibles_duplicados': duplicados}
 
 
+CODIGO_RE = re.compile(r'^INC-[0-9A-F]{6}$')
+
+
+def normalizar_codigo(texto):
+    """Acepta el código como lo escribe una persona: minúsculas, espacios, sin 'INC-' o con O/I/L por 0/1/1.
+    Los caracteres O, I y L nunca forman parte de un código (son hexadecimales), así que la corrección no es ambigua."""
+    t = re.sub(r'[\s\-_.]+', '', unquote(str(texto or ''))).upper()  # la ruta llega con %20 sin decodificar
+    if t.startswith('INC'):
+        t = t[3:]
+    t = t.replace('O', '0').replace('I', '1').replace('L', '1')
+    return 'INC-' + t
+
+
 def seguimiento_publico(c, ctx, codigo):
     """Vista pública por código de seguimiento: sin datos internos ni de personas."""
+    codigo = normalizar_codigo(codigo)
+    if not CODIGO_RE.match(codigo):
+        raise ApiError(400, 'el código tiene 6 caracteres después de "INC-" (números y letras A a F), por ejemplo INC-3F9A2C')
     r = c.execute('SELECT i.*, e.nombre AS ente_nombre FROM incidencias i JOIN entes e ON e.id=i.ente_id WHERE i.codigo=?',
                   (codigo,)).fetchone()
     if r is None:
-        raise ApiError(404, 'código inexistente')
+        raise ApiError(404, f'no existe un reporte con el código {codigo}')
     d = {'codigo': r['codigo'], 'categoria': r['categoria'], 'ente': r['ente_nombre'],
          'fecha_reporte': r['fecha_reporte'], 'estado': ESTADO_PUBLICO[r['estado']]}
     if r['intervencion_id']:
@@ -827,7 +844,7 @@ RUTAS = [
     ('GET', r'^/me$', me),
     ('GET', r'^/usuarios$', listar_usuarios),
     ('POST', r'^/incidencias$', reportar),
-    ('GET', r'^/seguimiento/(INC-[A-F0-9]{6})$', seguimiento_publico),
+    ('GET', r'^/seguimiento/([^/]*)$', seguimiento_publico),
     ('GET', r'^/incidencias$', listar_incidencias),
     ('GET', r'^/incidencias/(\d+)$', ficha_incidencia),
     ('POST', r'^/incidencias/(\d+)/inspeccion$', inspeccionar),

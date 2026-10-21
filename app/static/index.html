@@ -299,7 +299,7 @@ function vistaCiudadano() {
         ente: S.ente, categoria: $('#rCat').value, descripcion: $('#rDesc').value,
         lat: punto.lat, lon: punto.lon, precision_m: punto.precision_m, canal: 'web',
         capturada_at: new Date().toISOString().replace(/\.\d+Z$/, 'Z'), foto });
-      let txt = `Reporte recibido. Tu código de seguimiento es ${r.codigo}.`;
+      let txt = `Reporte recibido. Tu código de seguimiento es ${r.codigo}. Guardalo: con él consultás el estado en "Seguimiento por código".`;
       if (r.posibles_duplicados.length) txt += ` Hay ${r.posibles_duplicados.length} reporte(s) cercano(s) del mismo tipo; el municipio lo evaluará.`;
       mensaje(msg, txt, true);
       $('#rDesc').value = '';
@@ -311,16 +311,22 @@ function vistaCiudadano() {
 function vistaSeguimiento() {
   $('#vista').innerHTML = `<div class="card" style="max-width:640px">
     <h2>Seguimiento de un reporte</h2>
-    <div class="row"><input class="grow" id="sCod" placeholder="INC-XXXXXX"><button id="sBuscar">Consultar</button></div>
+    <p class="small">Ingresá el código que recibiste al enviar el reporte, por ejemplo INC-3F9A2C.</p>
+    <div class="row"><input class="grow" id="sCod" placeholder="INC-XXXXXX" autocomplete="off" autocapitalize="characters" spellcheck="false"><button id="sBuscar">Consultar</button></div>
     <div id="sRes"></div></div>`;
+  $('#sCod').onkeydown = e => { if (e.key === 'Enter') $('#sBuscar').click(); };
   $('#sBuscar').onclick = async () => {
     try {
-      const d = await api('GET', '/seguimiento/' + encodeURIComponent($('#sCod').value.trim().toUpperCase()));
+      const d = await api('GET', '/seguimiento/' + encodeURIComponent($('#sCod').value.trim()));
       $('#sRes').innerHTML = `<div class="msg ok">${esc(d.codigo)} · ${esc(d.categoria)}</div>
         <p><b>Estado:</b> ${esc(d.estado)}<br><span class="small">Reportado: ${fmt(d.fecha_reporte)} · ${esc(d.ente)}</span></p>` +
         (d.intervencion ? `<p><b>Intervención:</b> ${esc(d.intervencion.estado_publico)}
           · plazo previsto ${dia(d.intervencion.fecha_planificada_fin)}${d.intervencion.fecha_cierre ? ' · cerrada ' + fmt(d.intervencion.fecha_cierre) : ''}</p>` : '');
-    } catch (err) { mensaje($('#sRes'), err.message, false); }
+    } catch (err) {
+      const ayuda = window.SIGPLAT_DEMO && err.status === 404
+        ? ' Esta demo guarda los reportes sólo en este navegador: si usaste otro navegador, un modo privado o tocaste "Reiniciar demo", el reporte no está.' : '';
+      mensaje($('#sRes'), err.message + ayuda, false);
+    }
   };
 }
 

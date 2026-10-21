@@ -22,10 +22,11 @@ import seed  # noqa: E402
 DOCS = os.path.join(RAIZ, 'docs')
 BANNER_APP = ('<div class="banner">Prototipo de demostración con <b>datos ficticios</b> y contraseñas locales de prueba. '
               'No es un sistema de producción.</div>')
-BANNER_DEMO = ('<div class="banner"><b>Demo en el navegador</b>: corre en tu equipo, sin servidor, y se reinicia al recargar. '
-               'Datos <b>ficticios</b>. El ciudadano no necesita cuenta. Personal: usuario <code>cba-piloto.inspector1</code>, '
+BANNER_DEMO = ('<div class="banner"><b>Demo en el navegador</b>: corre en tu equipo, sin servidor, y guarda lo que hacés sólo en este '
+               'navegador. Datos <b>ficticios</b>. El ciudadano no necesita cuenta. Personal: usuario <code>cba-piloto.inspector1</code>, '
                '<code>cba-piloto.responsable1</code> o <code>cba-piloto.autoridad1</code>, contraseña '
-               f'<code>{seed.PASSWORD_PRUEBA}</code>.</div>')
+               f'<code>{seed.PASSWORD_PRUEBA}</code>. '
+               '<a href="#" onclick="reiniciarDemo();return false">Reiniciar demo</a></div>')
 ARCHIVOS = [
     ('app/core.py', os.path.join(RAIZ, 'app', 'core.py')),
     ('app/schema.sql', os.path.join(RAIZ, 'app', 'schema.sql')),
@@ -64,7 +65,8 @@ def main():
         os.makedirs(os.path.dirname(ruta), exist_ok=True)
         shutil.copyfile(origen, ruta)
     with open(os.path.join(DOCS, 'py', 'manifiesto.json'), 'w', encoding='utf-8') as f:
-        json.dump({'archivos': [d for d, _ in archivos], 'duracion_segundos': medir_duracion()}, f, indent=2)
+        json.dump({'archivos': [d for d, _ in archivos], 'duracion_segundos': medir_duracion(),
+                   'version': datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}, f, indent=2)
 
     with open(os.path.join(RAIZ, 'app', 'static', 'index.html'), encoding='utf-8') as f:
         html = f.read()

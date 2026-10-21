@@ -46,6 +46,7 @@ if not hasattr(hashlib, 'pbkdf2_hmac'):
 core.PBKDF2_ITER = 1000  # demo: arranque rápido en el navegador; la app local usa 310000
 import seed  # noqa: E402
 
+RUTA_DB = RAIZ + '/data/sigplat.db'
 FOTO_NOMBRE = re.compile(r'^[a-f0-9]{64}\.(jpg|png|webp)$')
 MIME = {'jpg': 'image/jpeg', 'png': 'image/png', 'webp': 'image/webp'}
 EST = {}
@@ -55,9 +56,13 @@ def iniciar(duracion_s):
     """Carga la historia ficticia terminando el día anterior a hoy y abre la conexión de trabajo."""
     ahora = datetime.now(timezone.utc).replace(microsecond=0)
     inicio = (ahora - timedelta(seconds=duracion_s) - timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
-    ruta = RAIZ + '/data/sigplat.db'
-    seed.construir(ruta, inicio)
-    c = core.conectar(ruta)
+    seed.construir(RUTA_DB, inicio)
+    abrir()
+
+
+def abrir():
+    """Abre la base que ya está en el sistema de archivos (recién sembrada o restaurada del navegador)."""
+    c = core.conectar(RUTA_DB)
     core.cargar_configs(c)
     c.commit()
     EST['c'] = c
