@@ -80,6 +80,20 @@ Lo que **no** es configurable todavía: las transiciones de estado y los permiso
 
 Cada intervención puede llevar `sistema_externo` (SIGO o SIGUE) y `expediente_externo` (texto libre). Son **sólo referencias**: el prototipo no lee ni escribe en esos sistemas. El flujo observado en el video y las decisiones de alineación están en `../02_REFERENCIA_SIGO_SIGUE/FLUJO_OBSERVADO.md`. No se generan certificados: el certificado oficial sigue siendo de SIGO.
 
+## Demo en el navegador (GitHub Pages)
+
+La carpeta `docs/` es una versión estática que corre **sin servidor**: el mismo `core.py` y el mismo seed se ejecutan en el navegador con [Pyodide](https://pyodide.org) (Python en WebAssembly). Cada visitante tiene su propia base en memoria, con datos ficticios, que se reinicia al recargar la página. La primera carga descarga unos 10 MB.
+
+Para publicarla: Settings → Pages → *Deploy from a branch* → rama `main`, carpeta `/docs`.
+
+`docs/` se genera, no se edita a mano. Después de cambiar `app/` o `scripts/seed.py`:
+
+```bash
+python scripts/build_demo.py
+```
+
+Para probarla en local: `python -m http.server 8001` dentro de `docs/` y abrir <http://127.0.0.1:8001>. En la demo el hash de contraseñas usa 1000 iteraciones y una implementación de PBKDF2 en Python puro (Pyodide no trae `hashlib.pbkdf2_hmac`) para que arranque rápido. La app local usa 310 000 iteraciones.
+
 ## Limitaciones conocidas
 
 - **Autenticación de prototipo.** Hay contraseñas y sesiones reales, pero sin recuperación de contraseña, sin doble factor, sin HTTPS (en local) y con bloqueo en memoria que se reinicia con el servidor. Para producción hace falta HTTPS, administración de usuarios y auditoría de accesos revisada.

@@ -1,0 +1,11 @@
+{
+  "archivos": [
+    "app/core.py",
+    "app/schema.sql",
+    "scripts/seed.py",
+    "puente.py",
+    "config/entes/cba_piloto.json",
+    "config/entes/ente_b_ficticio.json"
+  ],
+  "duracion_segundos": 14095463
+}

@@ -1,0 +1,22 @@
+{
+  "codigo": "CBA-PILOTO",
+  "nombre": "Municipio piloto (Córdoba) - DATOS FICTICIOS",
+  "ficticio": true,
+  "centro": [-31.4201, -64.1888],
+  "categorias": [
+    "Bache",
+    "Cordón cuneta roto",
+    "Luminaria apagada",
+    "Arbolado en riesgo",
+    "Anegamiento",
+    "Señalización dañada"
+  ],
+  "tipos_intervencion": {
+    "mantenimiento": {"etiqueta": "Tarea de mantenimiento", "requiere_actividades": false},
+    "orden_trabajo": {"etiqueta": "Orden de trabajo", "requiere_actividades": true},
+    "obra": {"etiqueta": "Obra pública", "requiere_actividades": true}
+  },
+  "duplicados": {"radio_m": 50, "dias": 30},
+  "radio_evidencia_m": 500,
+  "referencia_externa": "SIGO (Provincia de Córdoba): integración NO implementada en el prototipo"
+}
