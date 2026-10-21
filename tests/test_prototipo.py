@@ -557,7 +557,7 @@ class ObraBase(Base):
 
     def certificado_directo(self, kid, oid=None):
         """Emite el certificado de un cómputo presentado, como lo haría el administrativo."""
-        return self.llamar(obra.emitir_certificado, self.admin, {'computo_id': kid, 'observaciones': 'Certificación de prueba'},
+        return self.llamar(obra.emitir_certificado, self.insp, {'computo_id': kid, 'observaciones': 'Certificación de prueba'},
                            None, oid or self.oid)[1]
 
     def computo_certificado(self, c2=0, c3=0, **extra):
@@ -721,7 +721,7 @@ class Certificados(ObraBase):
         return k['id']
 
     def emitir(self, kid, quien=None, **cuerpo):
-        return self.llamar(obra.emitir_certificado, quien or self.admin, dict({'computo_id': kid}, **cuerpo), None, self.oid)[1]
+        return self.llamar(obra.emitir_certificado, quien or self.insp, dict({'computo_id': kid}, **cuerpo), None, self.oid)[1]
 
     def test_liquidacion_con_valores_calculados_a_mano(self):
         liq = obra.liquidar(100000000, 10, 5, 1)  # $ 1.000.000,00
@@ -739,8 +739,9 @@ class Certificados(ObraBase):
         liq = cert['liquidacion']
         self.assertEqual((liq['importe_mes_cent'], liq['importe_acumulado_cent'], liq['importe_anterior_cent']), (125000000, 125000000, 0))
         self.assertEqual(liq['a_abonar_cent'], liq['neto_cent'] + liq['iva_cent'])
-        self.assertEqual(cert['firmas'][1]['cargo'], 'Administrativo (emite)')
-        self.assertIsNone(cert['firmas'][2]['nombre'])  # la autorización todavía no se firmó
+        self.assertEqual(cert['firmas'][0]['cargo'], 'Inspector de obra (mide y certifica)')
+        self.assertEqual(cert['firmas'][0]['nombre'], 'Inspector T')
+        self.assertIsNone(cert['firmas'][1]['nombre'])  # la autorización todavía no se firmó
 
     def test_el_segundo_certificado_resta_lo_ya_certificado(self):
         self.emitir(self.presentado(c2=50))
@@ -750,17 +751,21 @@ class Certificados(ObraBase):
         self.assertEqual((liq['importe_anterior_cent'], liq['importe_mes_cent']), (125000000, 75000000 + 160000000))
         self.assertEqual(liq['importe_acumulado_cent'], 125000000 + 75000000 + 160000000)
 
-    def test_solo_el_administrativo_emite(self):
+    def test_solo_el_inspector_asignado_certifica(self):
         kid = self.presentado()
-        for quien in (self.insp, self.auth, self.contr):
+        for quien in (self.admin, self.auth, self.contr):  # el administrativo ya no emite: certifica el inspector
             with self.assertRaises(core.ApiError) as e:
                 self.emitir(kid, quien)
             self.assertEqual(e.exception.status, 403)
+        otro = self.usuario(self.cba, 'Otro inspector', 'inspector')
+        with self.assertRaises(core.ApiError) as e:
+            self.emitir(kid, otro)
+        self.assertEqual(e.exception.status, 404)  # y sólo el asignado a esta obra
 
     def test_un_monto_cero_exige_observaciones(self):
         kid = self.presentado(c2=0, c3=0)
         with self.assertRaises(core.ApiError) as e:
-            self.llamar(obra.emitir_certificado, self.admin, {'computo_id': kid}, None, self.oid)
+            self.llamar(obra.emitir_certificado, self.insp, {'computo_id': kid}, None, self.oid)
         self.assertEqual(e.exception.status, 400)
         self.assertIn('$ 0', e.exception.msg)
         cert = self.emitir(kid, observaciones='Mes sin avance: obra demorada por lluvias')
@@ -784,7 +789,7 @@ class Certificados(ObraBase):
         self.assertEqual((aut['estado'], aut['leyenda']), ('autorizado', None))
         self.assertEqual(aut['fecha_autorizacion'], self.hoy.strftime('%Y-%m-%d'))
         self.assertEqual(aut['vence_at'], (self.hoy + timedelta(days=30)).strftime('%Y-%m-%d'))
-        self.assertEqual(aut['firmas'][2]['nombre'], 'Autoridad T')
+        self.assertEqual(aut['firmas'][1]['nombre'], 'Autoridad T')
         with self.assertRaises(core.ApiError) as e:
             self.llamar(obra.autorizar_certificado, self.auth, {}, None, cert['id'])
         self.assertEqual(e.exception.status, 409)
@@ -871,7 +876,7 @@ class Certificados(ObraBase):
         self.llamar(obra.presentar_computo, self.insp, None, None, k['id'])
         self.c.execute('DELETE FROM plazos_cert_vencida')  # el plazo de certificación se agotó
         with self.assertRaises(core.ApiError) as e:
-            self.llamar(obra.emitir_certificado, self.admin, {'computo_id': k['id']}, None, oid)
+            self.llamar(obra.emitir_certificado, self.insp, {'computo_id': k['id']}, None, oid)
         self.assertEqual(e.exception.msg, obra.MSG_PLAZO_VENCIDO)
 
     def ids_de(self, oid):
@@ -894,6 +899,119 @@ class Certificados(ObraBase):
             self.llamar(obra.ficha_certificado, otro, None, None, cert['id'])
         self.assertEqual(e.exception.status, 404)
         self.llamar(obra.ficha_certificado, self.contr, None, None, cert['id'])  # el contratista de la obra sí
+
+
+class ModificacionesDeObra(ObraBase):
+    def mod(self, tipo='MCI', uid=None, **kw):
+        cuerpo = dict({'tipo': tipo, 'tramite': 'EXP-2026-001', 'instrumento': 'Acta Acuerdo N° 5' if tipo == 'MCI' else 'Resolución 123/2026'}, **kw)
+        return self.llamar(obra.cargar_modificacion, uid or self.admin, cuerpo, None, self.oid)[1]
+
+    def curvas(self, uid=None):
+        return self.llamar(obra.ficha_obra, uid or self.insp, None, None, self.oid)[1]['curva']
+
+    def test_la_obra_nace_con_su_curva_principal(self):
+        cv = self.curvas()
+        self.assertEqual([(s['nombre'], s['vigente'], s['estado']) for s in cv['curvas']], [('Principal', True, 'autorizada')])
+        info = self.llamar(obra.listar_modificaciones, self.insp, None, None, self.oid)[1]
+        self.assertEqual((info['plazo'], info['modificaciones'], info['vigente']),
+                         ({'original_dias': 360, 'ampliaciones_dias': 0, 'total_dias': 360}, [], 'Principal'))
+
+    def test_una_ampliacion_de_plazo_suma_dias_y_agrega_su_curva(self):
+        fin_antes = obra.fecha_fin(core.fila(self.c.execute('SELECT * FROM obras WHERE id=?', (self.oid,)).fetchone()))
+        m = self.mod('AP', dias=45, ideal={2: {self.m0: 30, self.m1: 40, self.m2: 30}})
+        self.assertEqual((m['nombre'], m['estado'], m['dias'], m['vigente']), ('AmpP-1', 'autorizada', 45, True))
+        info = self.llamar(obra.listar_modificaciones, self.insp, None, None, self.oid)[1]
+        self.assertEqual(info['plazo'], {'original_dias': 360, 'ampliaciones_dias': 45, 'total_dias': 405})
+        fin_despues = obra.fecha_fin(core.fila(self.c.execute('SELECT * FROM obras WHERE id=?', (self.oid,)).fetchone()))
+        self.assertEqual((fin_despues - fin_antes).days, 45)
+        self.assertEqual([s['nombre'] for s in self.curvas()['curvas']], ['Principal', 'AmpP-1'])
+
+    def test_la_modificacion_de_curva_espera_la_autorizacion_de_la_autoridad(self):
+        m = self.mod('MCI', ideal={2: {self.m0: 30, self.m1: 30, self.m2: 40}})
+        self.assertEqual((m['nombre'], m['estado'], m['vigente']), ('MCI-1', 'pendiente', False))
+        self.assertEqual([s['nombre'] for s in self.curvas()['curvas'] if s['vigente']], ['Principal'])  # todavía rige la anterior
+        res = self.llamar(obra.ficha_obra, self.insp, None, None, self.oid)[1]['resumen']
+        self.assertTrue(res['modificacion_pendiente'])
+        for quien in (self.admin, self.insp, self.contr):
+            with self.assertRaises(core.ApiError) as e:
+                self.llamar(obra.autorizar_modificacion, quien, None, None, m['id'])
+            self.assertEqual(e.exception.status, 403)
+        aut = self.llamar(obra.autorizar_modificacion, self.auth, None, None, m['id'])[1]
+        self.assertEqual((aut['estado'], aut['vigente'], aut['autorizada_por_nombre']), ('autorizada', True, 'Autoridad T'))
+        with self.assertRaises(core.ApiError) as e:
+            self.llamar(obra.autorizar_modificacion, self.auth, None, None, m['id'])
+        self.assertEqual(e.exception.status, 409)
+
+    def test_quien_carga_no_autoriza(self):
+        m = self.mod('MCI')
+        self.c.execute('UPDATE curvas_ideal SET creada_por=? WHERE id=?', (self.auth, m['id']))  # la misma persona carga y autoriza
+        self.c.commit()
+        with self.assertRaises(core.ApiError) as e:
+            self.llamar(obra.autorizar_modificacion, self.auth, None, None, m['id'])
+        self.assertEqual(e.exception.status, 403)
+
+    def test_el_desvio_se_mide_contra_la_curva_vigente(self):
+        self.computo_certificado(c2=50)  # certificado: 50 m3 en el primer mes
+        antes = self.curvas()
+        self.assertEqual(antes['puntos'][0]['desvio_cent'], 125000000 - 150000000)  # contra la Principal (60 m3)
+        m = self.mod('MCI', ideal={2: {self.m0: 30, self.m1: 30, self.m2: 40}})
+        self.llamar(obra.autorizar_modificacion, self.auth, None, None, m['id'])
+        despues = self.curvas()
+        self.assertEqual(despues['puntos'][0]['ideal_acum_cent'], 75000000)  # ahora se compara contra la MCI-1 (30 m3)
+        self.assertEqual(despues['puntos'][0]['desvio_cent'], 125000000 - 75000000)
+        principal = next(s for s in despues['curvas'] if s['nombre'] == 'Principal')
+        self.assertEqual(principal['puntos'][0]['acum_cent'], 150000000)  # la Principal se conserva para el gráfico
+
+    def test_lo_que_no_se_informa_se_copia_de_la_curva_vigente(self):
+        self.mod('AP', dias=10, ideal={2: {self.m0: 50, self.m1: 50}})  # cambia sólo el ítem 2
+        cv = self.curvas()['curvas']
+        principal, ampliada = cv[0]['puntos'], cv[1]['puntos']
+        self.assertEqual(principal[-1]['acum_cent'], ampliada[-1]['acum_cent'])  # el ítem 3 se copió: el total contratado es el mismo
+        self.assertEqual(len(principal), len(ampliada))  # todas las curvas comparten el eje de meses
+
+    def test_validaciones_de_la_modificacion(self):
+        casos = [({'instrumento': 'Resolución 5'}, 'MCI', 'Acta Acuerdo'),
+                 ({'ideal': {2: {self.m0: 80, self.m1: 40}}}, 'MCI', 'contratada'),  # 120 m3 contra 100 contratados
+                 ({'ideal': {99: {self.m0: 1}}}, 'MCI', 'no existe'),
+                 ({'ideal': {1: {self.m0: 1}}}, 'MCI', 'no existe'),  # el 1 es un rubro
+                 ({'ideal': {2: {'junio': 1}}}, 'MCI', 'AAAA-MM'),
+                 ({}, 'AP', 'días'), ({'dias': 0}, 'AP', 'días'), ({'dias': 2.5}, 'AP', 'entero'),
+                 ({'tramite': 'x'}, 'MCI', 'trámite')]
+        for extra, tipo, texto in casos:
+            with self.assertRaises(core.ApiError) as e:
+                self.mod(tipo, **extra)
+            self.assertEqual(e.exception.status, 400, extra)
+            self.assertIn(texto, e.exception.msg)
+        with self.assertRaises(core.ApiError) as e:
+            self.mod('XX')
+        self.assertEqual(e.exception.status, 400)
+
+    def test_no_se_carga_otra_modificacion_mientras_haya_una_pendiente(self):
+        self.mod('MCI')
+        with self.assertRaises(core.ApiError) as e:
+            self.mod('MCI')
+        self.assertEqual(e.exception.status, 409)
+        with self.assertRaises(core.ApiError) as e:  # ni siquiera una ampliación de plazo
+            self.mod('AP', dias=5)
+        self.assertEqual(e.exception.status, 409)
+
+    def test_solo_el_administrativo_carga_modificaciones(self):
+        for quien in (self.insp, self.auth, self.contr):
+            with self.assertRaises(core.ApiError) as e:
+                self.mod('MCI', uid=quien)
+            self.assertEqual(e.exception.status, 403)
+
+    def test_la_planilla_de_la_curva_vigente(self):
+        t = self.llamar(obra.curva_ideal_vigente, self.admin, None, None, self.oid)[1]
+        self.assertEqual(t['curva'], 'Principal')
+        self.assertEqual(t['meses'], [self.m0, self.m1, self.m2])
+        self.assertEqual([i['nro'] for i in t['items']], [2, 3])  # sin rubros
+        self.assertEqual(t['items'][0]['ideal'], {self.m0: 60.0, self.m1: 40.0})
+
+    def test_otro_ente_no_ve_las_modificaciones(self):
+        with self.assertRaises(core.ApiError) as e:
+            self.llamar(obra.listar_modificaciones, self.auth_b, None, None, self.oid)
+        self.assertEqual(e.exception.status, 404)
 
 
 def pdf_de_prueba(texto='Documento de prueba'):

@@ -157,6 +157,8 @@ def crear_obra(c, ente_id, denominacion, contratista, fecha_replanteo, plazo_dia
         (ente_id, denominacion, estado, contratista, contratista_id, inspector_id, fecha_replanteo, plazo_dias,
          anticipo_pct, fondo_reparo_pct, fondo_inspeccion_pct, plazo_venc_cert_dias, lat, lon))
     oid = cur.lastrowid
+    principal = c.execute("INSERT INTO curvas_ideal(obra_id,nombre,tipo,numero,estado,creada_por,creada_at) VALUES(?,?,?,?,?,?,?)",
+                          (oid, 'Principal', 'principal', 0, 'autorizada', usuario_id, core.iso(core.now()))).lastrowid
     ids = {}
     for it in items:
         titulo = 1 if it.get('titulo') else 0
@@ -174,17 +176,26 @@ def crear_obra(c, ente_id, denominacion, contratista, fecha_replanteo, plazo_dia
         for mes, cant in meses.items():
             if not re.match(r'^\d{4}-\d{2}$', mes):
                 raise ApiError(400, 'los meses del avance ideal deben ser AAAA-MM')
-            c.execute('INSERT INTO avance_ideal(item_id,mes,cantidad) VALUES(?,?,?)', (item_id, mes, q3(cant)))
+            c.execute('INSERT INTO avance_ideal(curva_id,item_id,mes,cantidad) VALUES(?,?,?,?)', (principal, item_id, mes, q3(cant)))
     core.audit(c, ente_id, 'obra', oid, 'creada', usuario_id, {'denominacion': denominacion})
     return oid
 
 
 # ---------- curva de avance ideal contra real ----------
 
-def _ideal_por_mes(c, oid):
+def _curva_vigente(c, oid):
+    """La curva ideal en vigor: la última autorizada (la Principal si no hubo modificaciones autorizadas)."""
+    r = c.execute("SELECT * FROM curvas_ideal WHERE obra_id=? AND estado='autorizada' ORDER BY id DESC LIMIT 1", (oid,)).fetchone()
+    return core.fila(r)
+
+
+def _ideal_por_mes(c, oid, curva_id=None):
+    if curva_id is None:
+        v = _curva_vigente(c, oid)
+        curva_id = v['id'] if v else -1
     out = {}
     for r in c.execute('''SELECT a.mes, a.cantidad, i.precio_oferta_cent FROM avance_ideal a
-                          JOIN items_obra i ON i.id=a.item_id WHERE i.obra_id=?''', (oid,)):
+                          JOIN items_obra i ON i.id=a.item_id WHERE a.curva_id=?''', (curva_id,)):
         out[r['mes']] = out.get(r['mes'], 0) + importe(r['cantidad'], r['precio_oferta_cent'])
     return out
 
@@ -203,12 +214,26 @@ def curva(c, obra, items=None):
     items = items if items is not None else _items(c, obra['id'])
     precios = {i['id']: i['precio_oferta_cent'] for i in items}
     monto = monto_contrato_cent(items)
-    ideal, real = _ideal_por_mes(c, obra['id']), _real_por_mes(c, obra['id'], precios)
+    real = _real_por_mes(c, obra['id'], precios)
+    curvas_db = [core.fila(r) for r in c.execute('SELECT * FROM curvas_ideal WHERE obra_id=? ORDER BY id', (obra['id'],))]
+    por_curva = {cv['id']: _ideal_por_mes(c, obra['id'], cv['id']) for cv in curvas_db}
+    vigente = _curva_vigente(c, obra['id'])
+    ideal = por_curva.get(vigente['id'], {}) if vigente else {}
     m0 = mes_de(obra['fecha_replanteo'])
-    ultimo = max([mes_de(fecha_fin(obra))] + list(ideal) + list(real))
+    todos = [m0, mes_de(fecha_fin(obra))] + list(real) + [m for d in por_curva.values() for m in d]
+    eje = meses_entre(min(todos), max(todos))  # el mismo eje de meses para todas las curvas
+    series = []
+    for cv in curvas_db:
+        acum, pts = 0, []
+        for mes in eje:
+            acum += por_curva[cv['id']].get(mes, 0)
+            pts.append({'mes': mes, 'acum_cent': acum, 'acum_pct': pct(acum, monto)})
+        series.append({'id': cv['id'], 'nombre': cv['nombre'], 'tipo': cv['tipo'], 'numero': cv['numero'], 'estado': cv['estado'],
+                       'vigente': bool(vigente and cv['id'] == vigente['id']), 'tramite': cv['tramite'], 'instrumento': cv['instrumento'],
+                       'dias': cv['dias'], 'puntos': pts})
     puntos, ia, ra = [], 0, 0
     ultimo_real = max(real) if real else None
-    for mes in meses_entre(min([m0] + list(ideal) + list(real)), ultimo):
+    for mes in eje:
         ia += ideal.get(mes, 0)
         con_real = ultimo_real is not None and mes <= ultimo_real
         if con_real:
@@ -222,7 +247,9 @@ def curva(c, obra, items=None):
         puntos.append(p)
     n = len(real)
     ult = next((p for p in reversed(puntos) if p['desvio_pp'] is not None), None)
-    return {'monto_contrato_cent': monto, 'puntos': puntos,
+    return {'monto_contrato_cent': monto, 'puntos': puntos, 'curvas': series,
+            'real': [{'mes': p['mes'], 'mes_cent': p['real_mes_cent'], 'acum_cent': p['real_acum_cent'], 'acum_pct': p['real_acum_pct']}
+                     for p in puntos if p['real_acum_cent'] is not None],
             'desvio': core.indicador(ult['desvio_pp'] if ult else None, n,
                                      'Puntos porcentuales entre lo certificado y lo comprometido, al último mes certificado')}
 
@@ -441,7 +468,16 @@ def _resumen(c, obra, items=None):
     docs_por_revisar = sum(1 for d in _docs_vigentes(c, obra['id']) if d['revision_estado'] != 'aprobado')
     recepciones_por_revisar = c.execute("SELECT COUNT(*) FROM recepciones_hormigon WHERE obra_id=? AND revision_estado='pendiente'",
                                         (obra['id'],)).fetchone()[0]
-    return {'monto_contrato_cent': monto, 'computos_sin_certificado': sin_certificado, 'certificados_pendientes': cert_pendientes,
+    autorizado = c.execute("SELECT COALESCE(SUM(monto_cent),0) FROM certificados WHERE obra_id=? AND estado='autorizado'", (obra['id'],)).fetchone()[0]
+    pendiente = c.execute("SELECT COALESCE(SUM(monto_cent),0) FROM certificados WHERE obra_id=? AND estado='pendiente'", (obra['id'],)).fetchone()[0]
+    plazo = _plazo_info(c, obra)
+    transcurrido = min(max((h - parse_fecha(obra['fecha_replanteo'], 'fecha_replanteo')).days, 0), obra['plazo_dias'])
+    return {'monto_contrato_cent': monto, 'plazo': plazo, 'plazo_transcurrido_pct': pct(transcurrido, obra['plazo_dias']),
+            'certificado_autorizado_cent': autorizado, 'certificado_pendiente_cent': pendiente,
+            'a_certificar_cent': max(monto - autorizado - pendiente, 0), 'avance_financiero_pct': pct(autorizado, monto),
+            'modificacion_pendiente': c.execute("SELECT 1 FROM curvas_ideal WHERE obra_id=? AND estado='pendiente'", (obra['id'],)).fetchone() is not None,
+            'curva_vigente': (_curva_vigente(c, obra['id']) or {}).get('nombre'),
+            'computos_sin_certificado': sin_certificado, 'certificados_pendientes': cert_pendientes,
             'os_sin_responder': os_sin_responder, 'documentos_por_revisar': docs_por_revisar, 'recepciones_por_revisar': recepciones_por_revisar,
             'fecha_fin': fin.strftime('%Y-%m-%d'), 'dias_restantes': (fin - h).days, 'vencida': h > fin,
             'plazo_cert_vencida_activo': _plazo_vencida_activo(c, obra['id']),
@@ -547,7 +583,7 @@ def _resumen_certificado(c, cert):
 
 
 def emitir_certificado(c, ctx, oid):
-    """El administrativo emite el certificado de un cómputo presentado. Nace PENDIENTE (se imprime 'NO AUTORIZADO')."""
+    """El inspector asignado certifica un cómputo presentado. Nace PENDIENTE (se imprime 'NO AUTORIZADO') y lo autoriza otra persona."""
     u, ente = core.usuario_actual(c, ctx)
     core.exigir(u, 'emitir_certificado')
     obra = _obra(c, ente, oid)
@@ -595,8 +631,7 @@ def _ficha_certificado(c, obra, cert):
         liquidacion=json.loads(cert['liquidacion_json'] or '{}'), observaciones=cert['observaciones'],
         leyenda={'pendiente': 'NO AUTORIZADO', 'anulado': 'ANULADO'}.get(cert['estado']), emitido_at=cert['emitido_at'],
         motivo_anulacion=cert['motivo_anulacion'],
-        firmas=[{'cargo': 'Inspector de obra (mide)', 'nombre': _nombre(c, k['presentado_por']), 'fecha': k['presentado_at']},
-                {'cargo': 'Administrativo (emite)', 'nombre': _nombre(c, cert['emitido_por']), 'fecha': cert['emitido_at']},
+        firmas=[{'cargo': 'Inspector de obra (mide y certifica)', 'nombre': _nombre(c, cert['emitido_por']), 'fecha': cert['emitido_at']},
                 {'cargo': 'Autoridad (autoriza)', 'nombre': _nombre(c, cert['autorizado_por']), 'fecha': cert['autorizado_at']}],
         nota_firmas=f'Firmas simuladas: el certificado real lleva {FIRMAS_REALES}.')
     return d
@@ -633,7 +668,7 @@ def autorizar_certificado(c, ctx, cid):
 
 
 def anular_certificado(c, ctx, cid):
-    u, ente, obra, cert = _cert_para(c, ctx, cid, 'gestionar_certificado')
+    u, ente, obra, cert = _cert_para(c, ctx, cid, 'anular_certificado')
     if cert['estado'] == 'autorizado':
         raise ApiError(409, 'un certificado autorizado ya no se puede anular')
     if cert['estado'] != 'pendiente':
@@ -650,7 +685,7 @@ def anular_certificado(c, ctx, cid):
 
 def asignar_expediente(c, ctx, cid):
     """Asigna el número de expediente. No puede repetirse entre certificados, salvo certificados de $ 0."""
-    u, ente, obra, cert = _cert_para(c, ctx, cid, 'gestionar_certificado')
+    u, ente, obra, cert = _cert_para(c, ctx, cid, 'asignar_expediente')
     if cert['estado'] == 'anulado':
         raise ApiError(409, 'no se asigna expediente a un certificado anulado')
     exp = str(ctx['body'].get('expediente') or '').strip()
@@ -663,6 +698,121 @@ def asignar_expediente(c, ctx, cid):
     c.execute('UPDATE certificados SET expediente_externo=? WHERE id=?', (exp, cid))
     core.audit(c, ente['id'], 'certificado', cid, 'expediente', u['id'], {'expediente': exp})
     return 200, _ficha_certificado(c, obra, core.fila(c.execute('SELECT * FROM certificados WHERE id=?', (cid,)).fetchone()))
+
+
+# ---------- modificaciones de la obra (manual pp. 51-60): curva ideal (MCI) y ampliación de plazo (AP) ----------
+
+def _plazo_info(c, obra):
+    amp = c.execute("SELECT COALESCE(SUM(dias),0) FROM curvas_ideal WHERE obra_id=? AND tipo='AP'", (obra['id'],)).fetchone()[0]
+    return {'original_dias': obra['plazo_dias'] - amp, 'ampliaciones_dias': amp, 'total_dias': obra['plazo_dias']}
+
+
+def _mod_dict(c, cv, vigente_id):
+    d = core.fila(cv)
+    d['creada_por_nombre'] = _nombre(c, d['creada_por'])
+    d['autorizada_por_nombre'] = _nombre(c, d['autorizada_por'])
+    d['vigente'] = d['id'] == vigente_id
+    return d
+
+
+def listar_modificaciones(c, ctx, oid):
+    u, ente, obra = _obra_para(c, ctx, oid=oid)
+    v = _curva_vigente(c, oid)
+    mods = [_mod_dict(c, r, v['id'] if v else None) for r in c.execute(
+        "SELECT * FROM curvas_ideal WHERE obra_id=? AND tipo!='principal' ORDER BY id DESC", (oid,))]
+    return 200, {'modificaciones': mods, 'plazo': _plazo_info(c, obra), 'vigente': v['nombre'] if v else None,
+                 'hay_pendiente': any(m['estado'] == 'pendiente' for m in mods)}
+
+
+def curva_ideal_vigente(c, ctx, oid):
+    """La curva en vigor, ítem por ítem y mes por mes: es la planilla de partida para cargar una modificación."""
+    u, ente, obra = _obra_para(c, ctx, oid=oid)
+    v = _curva_vigente(c, oid)
+    cant = {}
+    for r in c.execute('SELECT item_id, mes, cantidad FROM avance_ideal WHERE curva_id=?', (v['id'],)):
+        cant.setdefault(r['item_id'], {})[r['mes']] = r['cantidad']
+    return 200, {'curva': v['nombre'], 'meses': sorted({m for d in cant.values() for m in d}),
+                 'items': [{'nro': i['nro'], 'descripcion': i['descripcion'], 'unidad': i['unidad'], 'cantidad_oferta': i['cantidad_oferta'],
+                            'ideal': cant.get(i['id'], {})} for i in _items(c, oid) if not i['es_titulo']]}
+
+
+def cargar_modificacion(c, ctx, oid):
+    """Una modificación de curva ideal (queda pendiente hasta que la autoriza la autoridad) o una ampliación de plazo
+    (suma días de inmediato). Ambas traen una curva nueva: lo que no se informa se copia de la curva vigente."""
+    u, ente, obra = _obra_para(c, ctx, 'cargar_modificacion', oid)
+    b = ctx['body']
+    tipo = b.get('tipo')
+    if tipo not in ('MCI', 'AP'):
+        raise ApiError(400, 'tipo debe ser MCI (modificación de curva ideal) o AP (ampliación de plazo)')
+    tramite = core.texto(b.get('tramite'), 3, 40, 'número de trámite')
+    instrumento = core.texto(b.get('instrumento'), 3, 80, 'instrumento legal')
+    if tipo == 'MCI' and not instrumento.lower().startswith('acta acuerdo'):
+        raise ApiError(400, 'el instrumento legal de una modificación de curva ideal es un Acta Acuerdo')
+    if c.execute("SELECT 1 FROM curvas_ideal WHERE obra_id=? AND estado='pendiente'", (oid,)).fetchone():
+        raise ApiError(409, 'ya hay una modificación pendiente de autorización: se autoriza antes de cargar otra')
+    dias = None
+    if tipo == 'AP':
+        dias = core.numero_opcional(b.get('dias'), 1, 1000, 'días')
+        if dias is None or int(dias) != dias:
+            raise ApiError(400, 'una ampliación de plazo necesita los días (número entero entre 1 y 1000)')
+        dias = int(dias)
+    items = {i['nro']: i for i in _items(c, oid) if not i['es_titulo']}
+    vigente = _curva_vigente(c, oid)
+    qty = {}
+    for r in c.execute('SELECT item_id, mes, cantidad FROM avance_ideal WHERE curva_id=?', (vigente['id'],)):
+        qty.setdefault(r['item_id'], {})[r['mes']] = r['cantidad']
+    for nro, meses in (b.get('ideal') or {}).items():
+        item = items.get(int(nro)) if str(nro).lstrip('-').isdigit() else None
+        if item is None:
+            raise ApiError(400, f'el ítem {nro} no existe en la obra o es un rubro')
+        nuevo = {}
+        for mes, cantidad in (meses or {}).items():
+            if not re.match(r'^\d{4}-(0[1-9]|1[0-2])$', str(mes)):
+                raise ApiError(400, 'los meses de la curva deben ser AAAA-MM')
+            cantidad = core.numero_opcional(cantidad, 0, 1e9, f'cantidad del ítem {nro}')
+            if cantidad:
+                nuevo[mes] = q3(cantidad)
+        if sum(_d(v) for v in nuevo.values()) > _d(item['cantidad_oferta']) + Decimal('0.0005'):
+            raise ApiError(400, f'el avance ideal del ítem {nro} suma más que la cantidad contratada ({num_txt(item["cantidad_oferta"])})')
+        qty[item['id']] = nuevo
+    n = c.execute('SELECT COUNT(*) FROM curvas_ideal WHERE obra_id=? AND tipo=?', (oid, tipo)).fetchone()[0] + 1
+    nombre = f'MCI-{n}' if tipo == 'MCI' else f'AmpP-{n}'
+    estado = 'pendiente' if tipo == 'MCI' else 'autorizada'
+    ahora = core.iso(core.now())
+    cur = c.execute('''INSERT INTO curvas_ideal(obra_id,nombre,tipo,numero,estado,tramite,instrumento,dias,observaciones,creada_por,creada_at,
+                       autorizada_por,autorizada_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                    (oid, nombre, tipo, n, estado, tramite, instrumento, dias, (b.get('observaciones') or '').strip()[:500] or None, u['id'], ahora,
+                     u['id'] if estado == 'autorizada' else None, ahora if estado == 'autorizada' else None))
+    for item_id, meses in qty.items():
+        for mes, cantidad in meses.items():
+            c.execute('INSERT INTO avance_ideal(curva_id,item_id,mes,cantidad) VALUES(?,?,?,?)', (cur.lastrowid, item_id, mes, cantidad))
+    if tipo == 'AP':
+        c.execute('UPDATE obras SET plazo_dias=plazo_dias+? WHERE id=?', (dias, oid))
+    core.audit(c, ente['id'], 'obra', oid, 'modificacion_cargada', u['id'], {'curva': nombre, 'tramite': tramite, 'dias': dias})
+    return 201, _mod_dict(c, c.execute('SELECT * FROM curvas_ideal WHERE id=?', (cur.lastrowid,)).fetchone(), (_curva_vigente(c, oid) or {}).get('id'))
+
+
+def num_txt(x):
+    return ('%g' % x).replace('.', ',')
+
+
+def autorizar_modificacion(c, ctx, cid):
+    """La autoridad autoriza una modificación de curva ideal; hasta entonces no está vigente."""
+    u, ente = core.usuario_actual(c, ctx)
+    core.exigir(u, 'autorizar_modificacion')
+    cv = c.execute('SELECT * FROM curvas_ideal WHERE id=?', (cid,)).fetchone()
+    if cv is None or cv['tipo'] == 'principal':
+        raise ApiError(404, 'modificación inexistente')
+    obra = _obra(c, ente, cv['obra_id'])
+    if not _visible(u, obra):
+        raise ApiError(404, 'modificación inexistente')
+    if cv['estado'] != 'pendiente':
+        raise ApiError(409, 'la modificación ya está autorizada')
+    if cv['creada_por'] == u['id']:
+        raise ApiError(403, 'quien carga una modificación no puede autorizarla')
+    c.execute("UPDATE curvas_ideal SET estado='autorizada', autorizada_por=?, autorizada_at=? WHERE id=?", (u['id'], core.iso(core.now()), cid))
+    core.audit(c, ente['id'], 'obra', obra['id'], 'modificacion_autorizada', u['id'], {'curva': cv['nombre']})
+    return 200, _mod_dict(c, c.execute('SELECT * FROM curvas_ideal WHERE id=?', (cid,)).fetchone(), _curva_vigente(c, obra['id'])['id'])
 
 
 # ---------- libro de obra (SIGUE): órdenes de servicio ----------
@@ -1026,6 +1176,10 @@ def revisar_recepcion(c, ctx, rid):
 
 
 RUTAS = [
+    ('GET', r'^/obras/(\d+)/modificaciones$', listar_modificaciones),
+    ('POST', r'^/obras/(\d+)/modificaciones$', cargar_modificacion),
+    ('GET', r'^/obras/(\d+)/curva-ideal$', curva_ideal_vigente),
+    ('POST', r'^/modificaciones/(\d+)/autorizar$', autorizar_modificacion),
     ('GET', r'^/obras/(\d+)/ordenes-servicio$', listar_os),
     ('POST', r'^/obras/(\d+)/ordenes-servicio$', emitir_os),
     ('POST', r'^/ordenes-servicio/(\d+)/respuesta$', responder_os),

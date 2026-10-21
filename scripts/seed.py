@@ -197,11 +197,16 @@ OBRA_RENDIMIENTO = [0.95, 0.92, 0.88, 0.85]  # el contratista va un poco atrasad
 OBRA_PERSONAL = [38, 42, 45, 44]
 
 
-def ideal_de_obra(m0):
+def reparto_corrido(desde, meses):
+    """El mismo reparto, con los meses a partir de `desde` corridos `meses` hacia adelante (una obra que se atrasa)."""
+    return {nro: {off + (meses if off >= desde else 0): p for off, p in reparto.items()} for nro, reparto in OBRA_REPARTO.items()}
+
+
+def ideal_de_obra(m0, repartos=None):
     """{nro: {mes: cantidad}} a partir del reparto; el último mes de cada ítem completa la cantidad exacta."""
     cantidades = {i[0]: i[3] for i in OBRA_ITEMS if i[2]}
     ideal = {}
-    for nro, reparto in OBRA_REPARTO.items():
+    for nro, reparto in (repartos or OBRA_REPARTO).items():
         meses = sorted(reparto)
         acumulado = Decimal(0)
         ideal[nro] = {}
@@ -242,12 +247,24 @@ def sembrar_obra(s, simples):
         obra.guardar_computo(c, ctx({'items': medido, 'personal_afectado': OBRA_PERSONAL[k]}, insp), v['id'])
         obra.presentar_computo(c, ctx(None, insp), v['id'])
         core.CLOCK['now'] = en(m(k + 1), 4, 11)
-        _, cert = obra.emitir_certificado(c, ctx({'computo_id': v['id']}, admin), oid)
+        _, cert = obra.emitir_certificado(c, ctx({'computo_id': v['id']}, insp), oid)  # el inspector mide y certifica
         if k < 3:
             core.CLOCK['now'] = en(m(k + 1), 6, 15)
-            obra.autorizar_certificado(c, ctx({}, autoridad), cert['id'])
+            obra.autorizar_certificado(c, ctx({}, autoridad), cert['id'])  # y otra persona autoriza
             core.CLOCK['now'] = en(m(k + 1), 7, 9)
             obra.asignar_expediente(c, ctx({'expediente': f'0045-0{12340 + k}/2026'}, admin), cert['id'])
+        c.commit()
+        if k == 1:  # el contratista se atrasa: modificación de curva ideal, autorizada por la autoridad
+            core.CLOCK['now'] = en(m(2), 22, 10)
+            mod = obra.cargar_modificacion(c, ctx({'tipo': 'MCI', 'tramite': 'EXP-FICT-0042', 'instrumento': 'Acta Acuerdo N° 7 (ficticia)',
+                                                   'ideal': ideal_de_obra(m(0), reparto_corrido(3, 1))}, admin), oid)[1]
+            core.CLOCK['now'] = en(m(2), 25, 11)
+            obra.autorizar_modificacion(c, ctx({}, autoridad), mod['id'])
+        if k == 2:  # y después pide más plazo: ampliación de 45 días con una curva nueva
+            core.CLOCK['now'] = en(m(3), 12, 10)
+            reparto_ap = {n: {o + (1 if o >= 5 else 0): p for o, p in r.items()} for n, r in reparto_corrido(3, 1).items()}
+            obra.cargar_modificacion(c, ctx({'tipo': 'AP', 'tramite': 'EXP-FICT-0087', 'instrumento': 'Resolución 0456/2026 (ficticia)', 'dias': 45,
+                                             'ideal': ideal_de_obra(m(0), reparto_ap)}, admin), oid)
         c.commit()
     # el mes en curso: un cómputo a medio cargar, para mostrar la edición
     core.CLOCK['now'] = en(m(4), 2, 9)
