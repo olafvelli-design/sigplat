@@ -30,6 +30,7 @@ BANNER_DEMO = ('<div class="banner"><b>Demo en el navegador</b>: corre en tu equ
                '<a href="#" onclick="reiniciarDemo();return false">Reiniciar demo</a></div>')
 ARCHIVOS = [
     ('app/core.py', os.path.join(RAIZ, 'app', 'core.py')),
+    ('app/obra.py', os.path.join(RAIZ, 'app', 'obra.py')),
     ('app/schema.sql', os.path.join(RAIZ, 'app', 'schema.sql')),
     ('scripts/seed.py', os.path.join(RAIZ, 'scripts', 'seed.py')),
     ('puente.py', os.path.join(HERE, 'demo', 'puente.py')),

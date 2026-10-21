@@ -437,7 +437,12 @@ def _resumen(c, obra, items=None):
     sin_certificado = sum(1 for k in c.execute("SELECT id FROM computos WHERE obra_id=? AND estado='presentado'", (obra['id'],))
                           if _certificado_de(c, k['id']) is None)
     cert_pendientes = c.execute("SELECT COUNT(*) FROM certificados WHERE obra_id=? AND estado='pendiente'", (obra['id'],)).fetchone()[0]
+    os_sin_responder = c.execute("SELECT COUNT(*) FROM ordenes_servicio WHERE obra_id=? AND estado='emitida'", (obra['id'],)).fetchone()[0]
+    docs_por_revisar = sum(1 for d in _docs_vigentes(c, obra['id']) if d['revision_estado'] != 'aprobado')
+    recepciones_por_revisar = c.execute("SELECT COUNT(*) FROM recepciones_hormigon WHERE obra_id=? AND revision_estado='pendiente'",
+                                        (obra['id'],)).fetchone()[0]
     return {'monto_contrato_cent': monto, 'computos_sin_certificado': sin_certificado, 'certificados_pendientes': cert_pendientes,
+            'os_sin_responder': os_sin_responder, 'documentos_por_revisar': docs_por_revisar, 'recepciones_por_revisar': recepciones_por_revisar,
             'fecha_fin': fin.strftime('%Y-%m-%d'), 'dias_restantes': (fin - h).days, 'vencida': h > fin,
             'plazo_cert_vencida_activo': _plazo_vencida_activo(c, obra['id']),
             'avance_ideal_pct': ideal_hoy[-1]['ideal_acum_pct'] if ideal_hoy else 0.0,
@@ -660,7 +665,379 @@ def asignar_expediente(c, ctx, cid):
     return 200, _ficha_certificado(c, obra, core.fila(c.execute('SELECT * FROM certificados WHERE id=?', (cid,)).fetchone()))
 
 
+# ---------- libro de obra (SIGUE): órdenes de servicio ----------
+
+def _os_dict(c, r):
+    d = core.fila(r)
+    for campo in ('emitida_por', 'respondida_por', 'cerrada_por'):
+        d[campo + '_nombre'] = _nombre(c, d[campo])
+    return d
+
+
+def _os_para(c, ctx, osid, permiso):
+    u, ente = core.usuario_actual(c, ctx)
+    core.exigir(u, permiso)
+    r = c.execute('SELECT * FROM ordenes_servicio WHERE id=?', (osid,)).fetchone()
+    if r is None:
+        raise ApiError(404, 'orden de servicio inexistente')
+    obra = _obra(c, ente, r['obra_id'])
+    if not _visible(u, obra):
+        raise ApiError(404, 'orden de servicio inexistente')
+    return u, ente, obra, core.fila(r)
+
+
+def listar_os(c, ctx, oid):
+    u, ente, obra = _obra_para(c, ctx, oid=oid)
+    return 200, [_os_dict(c, r) for r in c.execute('SELECT * FROM ordenes_servicio WHERE obra_id=? ORDER BY numero', (oid,))]
+
+
+def emitir_os(c, ctx, oid):
+    """El inspector asignado emite una orden de servicio. Se numeran sin saltos y no se editan ni se borran."""
+    u, ente, obra = _obra_para(c, ctx, 'emitir_os', oid)
+    b = ctx['body']
+    asunto = core.texto(b.get('asunto'), 3, 120, 'asunto')
+    cuerpo = core.texto(b.get('texto'), 10, 2000, 'texto')
+    numero = c.execute('SELECT COALESCE(MAX(numero),0)+1 FROM ordenes_servicio WHERE obra_id=?', (oid,)).fetchone()[0]
+    cur = c.execute('''INSERT INTO ordenes_servicio(obra_id,ente_id,numero,fecha,asunto,texto,emitida_por,emitida_at,estado)
+                       VALUES(?,?,?,?,?,?,?,?,?)''',
+                    (oid, ente['id'], numero, hoy().strftime('%Y-%m-%d'), asunto, cuerpo, u['id'], core.iso(core.now()), 'emitida'))
+    core.audit(c, ente['id'], 'orden_servicio', cur.lastrowid, 'emitida', u['id'], {'numero': numero, 'obra': oid})
+    return 201, _os_dict(c, c.execute('SELECT * FROM ordenes_servicio WHERE id=?', (cur.lastrowid,)).fetchone())
+
+
+def responder_os(c, ctx, osid):
+    """El contratista responde (descargo) una sola vez."""
+    u, ente, obra, o = _os_para(c, ctx, osid, 'responder_os')
+    if o['estado'] != 'emitida':
+        raise ApiError(409, 'la orden de servicio ya fue respondida')
+    resp = core.texto(ctx['body'].get('texto'), 5, 2000, 'respuesta')
+    c.execute("UPDATE ordenes_servicio SET estado='respondida', respuesta=?, respondida_por=?, respondida_at=? WHERE id=?",
+              (resp, u['id'], core.iso(core.now()), osid))
+    core.audit(c, ente['id'], 'orden_servicio', osid, 'respondida', u['id'], {'numero': o['numero']})
+    return 200, _os_dict(c, c.execute('SELECT * FROM ordenes_servicio WHERE id=?', (osid,)).fetchone())
+
+
+def cerrar_os(c, ctx, osid):
+    u, ente, obra, o = _os_para(c, ctx, osid, 'cerrar_os')
+    if obra['inspector_id'] != u['id']:
+        raise ApiError(404, 'orden de servicio inexistente')
+    if o['estado'] != 'respondida':
+        raise ApiError(409, 'sólo se cierra una orden de servicio que ya fue respondida')
+    obs = (ctx['body'].get('observacion') or '').strip()[:1000] or None
+    c.execute("UPDATE ordenes_servicio SET estado='cerrada', cerrada_por=?, cerrada_at=?, cierre_obs=? WHERE id=?",
+              (u['id'], core.iso(core.now()), obs, osid))
+    core.audit(c, ente['id'], 'orden_servicio', osid, 'cerrada', u['id'], {'numero': o['numero']})
+    return 200, _os_dict(c, c.execute('SELECT * FROM ordenes_servicio WHERE id=?', (osid,)).fetchone())
+
+
+# ---------- documentación técnica (SIGUE): legajo con versiones, etiquetas y observaciones ----------
+
+TIPOS_DOC = ('plano', 'material', 'dosificacion', 'ensayo', 'calibracion', 'planilla', 'otro')
+ARCHIVO_RE = re.compile(r'^data:(application/pdf|image/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=\s]+)$')
+EXT_ARCHIVO = {'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp'}
+
+
+def guardar_archivo(dataurl):
+    """Como guardar_foto, pero acepta también PDF. Se guarda por hash: el mismo contenido es el mismo archivo."""
+    if not isinstance(dataurl, str):
+        raise ApiError(400, 'falta el archivo')
+    m = ARCHIVO_RE.match(dataurl)
+    if not m:
+        raise ApiError(400, 'el archivo debe ser PDF, JPEG, PNG o WebP codificado en base64')
+    try:
+        data = core.base64.b64decode(m.group(2))
+    except core.binascii.Error:
+        raise ApiError(400, 'base64 inválido')
+    if len(data) > core.MAX_FOTO_BYTES:
+        raise ApiError(413, 'el archivo supera 3 MB')
+    if m.group(1) == 'application/pdf' and not data.startswith(b'%PDF-'):
+        raise ApiError(400, 'el archivo no es un PDF válido')
+    sha = core.hashlib.sha256(data).hexdigest()
+    ruta = f'{sha}.{EXT_ARCHIVO[m.group(1)]}'
+    core.os.makedirs(core.FOTOS_DIR, exist_ok=True)
+    camino = core.os.path.join(core.FOTOS_DIR, ruta)
+    if not core.os.path.exists(camino):
+        with open(camino, 'wb') as f:
+            f.write(data)
+    return sha, ruta, m.group(1)
+
+
+def _fecha_opcional(valor, campo):
+    return parse_fecha(valor, campo).strftime('%Y-%m-%d') if valor else None
+
+
+def _docs_vigentes(c, oid, tipo=None):
+    """Las versiones vigentes: las que ninguna versión posterior reemplazó."""
+    sql = '''SELECT * FROM documentos_obra d WHERE obra_id=? AND NOT EXISTS (SELECT 1 FROM documentos_obra x WHERE x.reemplaza_a=d.id)'''
+    return [core.fila(r) for r in c.execute(sql + (' AND tipo=?' if tipo else '') + ' ORDER BY id', (oid, tipo) if tipo else (oid,))]
+
+
+def _doc_dict(c, d, ente):
+    alerta = cfg_obra(ente)['alerta_vencimiento_dias']
+    h = hoy()
+    out = dict(d)
+    out['etiquetas'] = json.loads(d['etiquetas'] or '[]')
+    out['datos'] = json.loads(d['datos_json'] or '{}')
+    out.pop('datos_json', None)
+    out['url'] = f'/api/fotos/{d["ruta"]}'
+    venc = parse_fecha(d['fecha_vencimiento'], 'fecha_vencimiento') if d['fecha_vencimiento'] else None
+    out['vencido'] = bool(venc and venc < h)
+    out['por_vencer'] = bool(venc and h <= venc <= h + timedelta(days=alerta))
+    out['dias_para_vencer'] = (venc - h).days if venc else None
+    out['vigente'] = c.execute('SELECT 1 FROM documentos_obra WHERE reemplaza_a=?', (d['id'],)).fetchone() is None
+    out['subido_por_nombre'] = _nombre(c, d['subido_por'])
+    out['revisado_por_nombre'] = _nombre(c, d['revisado_por'])
+    obs = [core.fila(r) for r in c.execute('SELECT * FROM observaciones_documento WHERE documento_id=? ORDER BY id', (d['id'],))]
+    for o in obs:
+        o['autor_nombre'] = _nombre(c, o['autor_id'])
+        o['resuelta'] = bool(o['resuelta'])
+    out['observaciones'] = obs
+    out['observaciones_abiertas'] = sum(1 for o in obs if not o['resuelta'])
+    return out
+
+
+def _doc_para(c, ctx, did, permiso='ver_obras'):
+    u, ente = core.usuario_actual(c, ctx)
+    core.exigir(u, permiso)
+    r = c.execute('SELECT * FROM documentos_obra WHERE id=?', (did,)).fetchone()
+    if r is None:
+        raise ApiError(404, 'documento inexistente')
+    obra = _obra(c, ente, r['obra_id'])
+    if not _visible(u, obra):
+        raise ApiError(404, 'documento inexistente')
+    return u, ente, obra, core.fila(r)
+
+
+def listar_documentos(c, ctx, oid):
+    """Filtros (query): tipo, etiqueta, estado (pendiente, observado, aprobado, vencido) y todas=1 para incluir versiones anteriores."""
+    u, ente, obra = _obra_para(c, ctx, oid=oid)
+    q = ctx['q']
+    filas = [core.fila(r) for r in c.execute('SELECT * FROM documentos_obra WHERE obra_id=? ORDER BY id', (oid,))]
+    docs = [_doc_dict(c, d, ente) for d in filas]
+    if q.get('todas') != '1':
+        docs = [d for d in docs if d['vigente']]
+    if q.get('tipo'):
+        docs = [d for d in docs if d['tipo'] == q['tipo']]
+    if q.get('etiqueta'):
+        docs = [d for d in docs if q['etiqueta'].lower() in [e.lower() for e in d['etiquetas']]]
+    if q.get('estado') == 'vencido':
+        docs = [d for d in docs if d['vencido']]
+    elif q.get('estado'):
+        docs = [d for d in docs if d['revision_estado'] == q['estado']]
+    return 200, docs
+
+
+def subir_documento(c, ctx, oid):
+    """El contratista o el inspector suben un documento; una versión nueva reemplaza (sin borrar) a la anterior."""
+    u, ente, obra = _obra_para(c, ctx, 'subir_documento', oid)
+    cfg, b = cfg_obra(ente), ctx['body']
+    tipo = b.get('tipo')
+    if tipo not in TIPOS_DOC:
+        raise ApiError(400, 'tipo de documento no válido: ' + ', '.join(TIPOS_DOC))
+    titulo = core.texto(b.get('titulo'), 3, 120, 'título')
+    etiquetas = []
+    for e in b.get('etiquetas') or []:
+        e = core.texto(e, 1, 30, 'etiqueta')
+        if e.lower() not in [x.lower() for x in etiquetas]:
+            etiquetas.append(e)
+    if len(etiquetas) > 10:
+        raise ApiError(400, 'hasta 10 etiquetas por documento')
+    emision, venc = _fecha_opcional(b.get('fecha_emision'), 'fecha_emision'), _fecha_opcional(b.get('fecha_vencimiento'), 'fecha_vencimiento')
+    if emision and venc and venc < emision:
+        raise ApiError(400, 'el vencimiento no puede ser anterior a la emisión')
+    clave = (b.get('clave') or '').strip()[:40] or None
+    datos = {}
+    if tipo == 'dosificacion':
+        if clave not in cfg['hormigon']['tipos']:
+            raise ApiError(400, 'la dosificación necesita el tipo de hormigón: ' + ', '.join(cfg['hormigon']['tipos']))
+        asent = core.numero_opcional((b.get('datos') or {}).get('asentamiento_cm'), 0, 30, 'asentamiento de diseño (cm)')
+        if asent is None:
+            raise ApiError(400, 'la dosificación necesita el asentamiento de diseño en cm')
+        tol = core.numero_opcional((b.get('datos') or {}).get('tolerancia_cm'), 0, 15, 'tolerancia (cm)')
+        datos = {'asentamiento_cm': asent, 'tolerancia_cm': cfg['hormigon']['asentamiento_tolerancia_cm'] if tol is None else tol}
+    version, reemplaza = 1, b.get('reemplaza_a')
+    if reemplaza is not None:
+        ant = c.execute('SELECT * FROM documentos_obra WHERE id=? AND obra_id=? AND tipo=?', (reemplaza, oid, tipo)).fetchone()
+        if ant is None:
+            raise ApiError(400, 'reemplaza_a debe ser un documento de esta obra del mismo tipo')
+        if c.execute('SELECT 1 FROM documentos_obra WHERE reemplaza_a=?', (reemplaza,)).fetchone():
+            raise ApiError(409, 'ese documento ya tiene una versión más nueva')
+        version = ant['version'] + 1
+    sha, ruta, mime = guardar_archivo(b.get('archivo'))
+    cur = c.execute(
+        '''INSERT INTO documentos_obra(obra_id,ente_id,tipo,titulo,clave,datos_json,etiquetas,sha256,ruta,mime,fecha_emision,
+           fecha_vencimiento,version,reemplaza_a,subido_por,subido_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+        (oid, ente['id'], tipo, titulo, clave, json.dumps(datos), json.dumps(etiquetas, ensure_ascii=False), sha, ruta, mime, emision, venc,
+         version, reemplaza, u['id'], core.iso(core.now())))
+    core.audit(c, ente['id'], 'documento', cur.lastrowid, 'subido', u['id'], {'tipo': tipo, 'version': version})
+    return 201, _doc_dict(c, core.fila(c.execute('SELECT * FROM documentos_obra WHERE id=?', (cur.lastrowid,)).fetchone()), ente)
+
+
+def _revisor_de(c, u, obra, doc):
+    """Sólo el inspector asignado revisa, y nunca lo que cargó él mismo."""
+    if obra['inspector_id'] != u['id']:
+        raise ApiError(404, 'documento inexistente')
+    if doc['subido_por'] == u['id']:
+        raise ApiError(403, 'quien carga un documento no puede revisarlo')
+
+
+def agregar_observacion(c, ctx, did):
+    u, ente, obra, d = _doc_para(c, ctx, did, 'revisar_documento')
+    _revisor_de(c, u, obra, d)
+    if not _doc_dict(c, d, ente)['vigente']:
+        raise ApiError(409, 'ese documento ya tiene una versión más nueva: se observa la vigente')
+    texto = core.texto(ctx['body'].get('texto'), 5, 1000, 'observación')
+    cur = c.execute('INSERT INTO observaciones_documento(documento_id,texto,autor_id,creada_at) VALUES(?,?,?,?)',
+                    (did, texto, u['id'], core.iso(core.now())))
+    c.execute("UPDATE documentos_obra SET revision_estado='observado', revisado_por=?, revisado_at=? WHERE id=?",
+              (u['id'], core.iso(core.now()), did))
+    core.audit(c, ente['id'], 'documento', did, 'observado', u['id'], {'observacion': texto, 'id': cur.lastrowid})
+    return 201, _doc_dict(c, core.fila(c.execute('SELECT * FROM documentos_obra WHERE id=?', (did,)).fetchone()), ente)
+
+
+def resolver_observacion(c, ctx, obsid):
+    u, ente = core.usuario_actual(c, ctx)
+    core.exigir(u, 'revisar_documento')
+    o = c.execute('SELECT * FROM observaciones_documento WHERE id=?', (obsid,)).fetchone()
+    if o is None:
+        raise ApiError(404, 'observación inexistente')
+    ctx2 = dict(ctx)
+    u, ente, obra, d = _doc_para(c, ctx2, o['documento_id'], 'revisar_documento')
+    _revisor_de(c, u, obra, d)
+    if o['resuelta']:
+        raise ApiError(409, 'la observación ya está resuelta')
+    c.execute('UPDATE observaciones_documento SET resuelta=1, resuelta_por=?, resuelta_at=? WHERE id=?', (u['id'], core.iso(core.now()), obsid))
+    core.audit(c, ente['id'], 'documento', d['id'], 'observacion_resuelta', u['id'], {'id': obsid})
+    return 200, _doc_dict(c, core.fila(c.execute('SELECT * FROM documentos_obra WHERE id=?', (d['id'],)).fetchone()), ente)
+
+
+def aprobar_documento(c, ctx, did):
+    u, ente, obra, d = _doc_para(c, ctx, did, 'revisar_documento')
+    _revisor_de(c, u, obra, d)
+    vista = _doc_dict(c, d, ente)
+    if not vista['vigente']:
+        raise ApiError(409, 'ese documento ya tiene una versión más nueva: se aprueba la vigente')
+    if d['revision_estado'] == 'aprobado':
+        raise ApiError(409, 'el documento ya está aprobado')
+    if vista['observaciones_abiertas']:
+        raise ApiError(409, f'No se puede aprobar: quedan {vista["observaciones_abiertas"]} observación(es) sin resolver.')
+    c.execute("UPDATE documentos_obra SET revision_estado='aprobado', revisado_por=?, revisado_at=? WHERE id=?",
+              (u['id'], core.iso(core.now()), did))
+    core.audit(c, ente['id'], 'documento', did, 'aprobado', u['id'], {})
+    return 200, _doc_dict(c, core.fila(c.execute('SELECT * FROM documentos_obra WHERE id=?', (did,)).fetchone()), ente)
+
+
+# ---------- control de calidad: planilla de recepción de hormigón ----------
+
+def banderas_recepcion(c, obra, ente, r):
+    """Avisos de consistencia. No bloquean ni corrigen: el inspector decide. Umbrales de EJEMPLO (config del ente)."""
+    h = cfg_obra(ente)['hormigon']
+    out = []
+    dosif = [d for d in _docs_vigentes(c, obra['id'], 'dosificacion') if d['clave'] == r['tipo'] and d['revision_estado'] == 'aprobado']
+    if not dosif:
+        out.append('sin_dosificacion_aprobada')
+    elif r['asentamiento_cm'] is not None:
+        datos = json.loads(dosif[-1]['datos_json'] or '{}')
+        if abs(r['asentamiento_cm'] - datos.get('asentamiento_cm', r['asentamiento_cm'])) > datos.get('tolerancia_cm', h['asentamiento_tolerancia_cm']):
+            out.append('asentamiento_fuera_de_diseno')
+    if r['asentamiento_cm'] is None:
+        out.append('sin_asentamiento')
+    if r['temp_hormigon'] is not None:
+        if r['temp_hormigon'] > h['temp_hormigon_max_c']:
+            out.append('temperatura_hormigon_alta')
+        elif r['temp_hormigon'] < h['temp_hormigon_min_c']:
+            out.append('temperatura_hormigon_baja')
+    if c.execute('SELECT 1 FROM recepciones_hormigon WHERE obra_id=? AND remito=?', (obra['id'], r['remito'])).fetchone():
+        out.append('remito_repetido')
+    for tipo, bandera in (('material', 'documento_de_material_vencido'), ('calibracion', 'calibracion_vencida')):
+        if any(d['fecha_vencimiento'] and d['fecha_vencimiento'] < r['fecha'] for d in _docs_vigentes(c, obra['id'], tipo)):
+            out.append(bandera)
+    return out
+
+
+def _rec_dict(c, r):
+    d = core.fila(r)
+    d['banderas'] = json.loads(d['banderas'] or '[]')
+    d['cargada_por_nombre'] = _nombre(c, d['cargada_por'])
+    d['revisada_por_nombre'] = _nombre(c, d['revisada_por'])
+    return d
+
+
+def listar_recepciones(c, ctx, oid):
+    u, ente, obra = _obra_para(c, ctx, oid=oid)
+    return 200, [_rec_dict(c, r) for r in c.execute('SELECT * FROM recepciones_hormigon WHERE obra_id=? ORDER BY fecha DESC, hora DESC, id DESC', (oid,))]
+
+
+def cargar_recepcion(c, ctx, oid):
+    u, ente, obra = _obra_para(c, ctx, 'cargar_recepcion', oid)
+    cfg, b = cfg_obra(ente), ctx['body']
+    fecha = parse_fecha(b.get('fecha'), 'fecha')
+    if fecha > hoy():
+        raise ApiError(400, 'la fecha de recepción no puede ser futura')
+    hora = str(b.get('hora') or '')
+    if not re.match(r'^([01]\d|2[0-3]):[0-5]\d$', hora):
+        raise ApiError(400, 'la hora debe tener formato HH:MM')
+    tipo = b.get('tipo')
+    if tipo not in cfg['hormigon']['tipos']:
+        raise ApiError(400, 'tipo de hormigón no válido: ' + ', '.join(cfg['hormigon']['tipos']))
+    vol = core.numero_opcional(b.get('volumen_m3'), 0, 100, 'volumen (m3)')
+    if not vol:
+        raise ApiError(400, 'el volumen debe ser mayor que cero')
+    r = {'fecha': fecha.strftime('%Y-%m-%d'), 'hora': hora, 'tipo': tipo, 'volumen_m3': q3(vol),
+         'elemento': core.texto(b.get('elemento'), 3, 80, 'elemento estructural'),
+         'probeta': (b.get('probeta') or '').strip()[:30] or None, 'remito': core.texto(b.get('remito'), 1, 30, 'remito'),
+         'temp_ambiente': core.numero_opcional(b.get('temp_ambiente'), -20, 60, 'temperatura ambiente'),
+         'temp_hormigon': core.numero_opcional(b.get('temp_hormigon'), -5, 60, 'temperatura del hormigón'),
+         'asentamiento_cm': core.numero_opcional(b.get('asentamiento_cm'), 0, 30, 'asentamiento (cm)')}
+    banderas = banderas_recepcion(c, obra, ente, r)
+    cur = c.execute(
+        '''INSERT INTO recepciones_hormigon(obra_id,ente_id,fecha,hora,tipo,volumen_m3,elemento,probeta,remito,temp_ambiente,temp_hormigon,
+           asentamiento_cm,cargada_por,cargada_at,banderas) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+        (oid, ente['id'], r['fecha'], hora, tipo, r['volumen_m3'], r['elemento'], r['probeta'], r['remito'], r['temp_ambiente'],
+         r['temp_hormigon'], r['asentamiento_cm'], u['id'], core.iso(core.now()), json.dumps(banderas)))
+    core.audit(c, ente['id'], 'recepcion_hormigon', cur.lastrowid, 'cargada', u['id'], {'tipo': tipo, 'banderas': banderas})
+    return 201, _rec_dict(c, c.execute('SELECT * FROM recepciones_hormigon WHERE id=?', (cur.lastrowid,)).fetchone())
+
+
+def revisar_recepcion(c, ctx, rid):
+    u, ente = core.usuario_actual(c, ctx)
+    core.exigir(u, 'revisar_recepcion')
+    r = c.execute('SELECT * FROM recepciones_hormigon WHERE id=?', (rid,)).fetchone()
+    if r is None:
+        raise ApiError(404, 'recepción inexistente')
+    obra = _obra(c, ente, r['obra_id'])
+    if not _visible(u, obra) or obra['inspector_id'] != u['id']:
+        raise ApiError(404, 'recepción inexistente')
+    if r['cargada_por'] == u['id']:
+        raise ApiError(403, 'quien carga una planilla no puede revisarla')
+    if r['revision_estado'] != 'pendiente':
+        raise ApiError(409, 'la recepción ya fue revisada')
+    accion = ctx['body'].get('accion')
+    if accion not in ('validar', 'observar'):
+        raise ApiError(400, 'accion debe ser validar u observar')
+    obs = (ctx['body'].get('observacion') or '').strip()[:1000] or None
+    if accion == 'observar' and (obs is None or len(obs) < 5):
+        raise ApiError(400, 'para observar hace falta explicar el motivo (al menos 5 letras)')
+    nuevo = 'validada' if accion == 'validar' else 'observada'
+    c.execute('UPDATE recepciones_hormigon SET revision_estado=?, revisada_por=?, revisada_at=?, observacion=? WHERE id=?',
+              (nuevo, u['id'], core.iso(core.now()), obs, rid))
+    core.audit(c, ente['id'], 'recepcion_hormigon', rid, nuevo, u['id'], {'observacion': obs})
+    return 200, _rec_dict(c, c.execute('SELECT * FROM recepciones_hormigon WHERE id=?', (rid,)).fetchone())
+
+
 RUTAS = [
+    ('GET', r'^/obras/(\d+)/ordenes-servicio$', listar_os),
+    ('POST', r'^/obras/(\d+)/ordenes-servicio$', emitir_os),
+    ('POST', r'^/ordenes-servicio/(\d+)/respuesta$', responder_os),
+    ('POST', r'^/ordenes-servicio/(\d+)/cerrar$', cerrar_os),
+    ('GET', r'^/obras/(\d+)/documentos$', listar_documentos),
+    ('POST', r'^/obras/(\d+)/documentos$', subir_documento),
+    ('POST', r'^/documentos/(\d+)/observaciones$', agregar_observacion),
+    ('POST', r'^/documentos/(\d+)/aprobar$', aprobar_documento),
+    ('POST', r'^/observaciones/(\d+)/resolver$', resolver_observacion),
+    ('GET', r'^/obras/(\d+)/recepciones$', listar_recepciones),
+    ('POST', r'^/obras/(\d+)/recepciones$', cargar_recepcion),
+    ('POST', r'^/recepciones/(\d+)/revision$', revisar_recepcion),
     ('POST', r'^/obras/(\d+)/certificados$', emitir_certificado),
     ('GET', r'^/obras/(\d+)/certificados$', listar_certificados),
     ('GET', r'^/certificados/(\d+)$', ficha_certificado),

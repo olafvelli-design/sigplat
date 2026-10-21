@@ -896,6 +896,249 @@ class Certificados(ObraBase):
         self.llamar(obra.ficha_certificado, self.contr, None, None, cert['id'])  # el contratista de la obra sí
 
 
+def pdf_de_prueba(texto='Documento de prueba'):
+    """PDF mínimo y válido para las pruebas."""
+    cuerpo = f'%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n' \
+             f'3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\n% {texto}\ntrailer<</Root 1 0 R>>\n%%EOF'
+    return 'data:application/pdf;base64,' + base64.b64encode(cuerpo.encode('latin-1')).decode()
+
+
+class LibroDeObra(ObraBase):
+    def os(self, asunto='Presentar el plan de trabajos', texto='Se solicita presentar el plan de trabajos actualizado.', uid=None):
+        return self.llamar(obra.emitir_os, uid or self.insp, {'asunto': asunto, 'texto': texto}, None, self.oid)[1]
+
+    def test_las_ordenes_se_numeran_sin_saltos(self):
+        self.assertEqual([self.os(f'Asunto número {i}')['numero'] for i in range(1, 5)], [1, 2, 3, 4])
+        otra = self.nueva_obra()  # la numeración es por obra
+        self.assertEqual(self.llamar(obra.emitir_os, self.insp, {'asunto': 'Primera de la otra obra', 'texto': 'Texto suficientemente largo'},
+                                     None, otra)[1]['numero'], 1)
+
+    def test_solo_el_inspector_asignado_emite(self):
+        for quien in (self.contr, self.admin, self.auth):
+            with self.assertRaises(core.ApiError) as e:
+                self.os(uid=quien)
+            self.assertEqual(e.exception.status, 403)
+        otro = self.usuario(self.cba, 'Otro inspector', 'inspector')
+        with self.assertRaises(core.ApiError) as e:
+            self.os(uid=otro)
+        self.assertEqual(e.exception.status, 404)
+
+    def test_el_contratista_responde_una_sola_vez_y_el_inspector_cierra(self):
+        o = self.os()
+        self.assertEqual(o['estado'], 'emitida')
+        with self.assertRaises(core.ApiError) as e:  # no se cierra sin respuesta
+            self.llamar(obra.cerrar_os, self.insp, {}, None, o['id'])
+        self.assertEqual(e.exception.status, 409)
+        with self.assertRaises(core.ApiError) as e:  # el inspector no responde por el contratista
+            self.llamar(obra.responder_os, self.insp, {'texto': 'Respuesta del inspector'}, None, o['id'])
+        self.assertEqual(e.exception.status, 403)
+        r = self.llamar(obra.responder_os, self.contr, {'texto': 'Se presenta el plan actualizado en la fecha pedida.'}, None, o['id'])[1]
+        self.assertEqual((r['estado'], r['respondida_por_nombre']), ('respondida', 'Contratista T'))
+        with self.assertRaises(core.ApiError) as e:
+            self.llamar(obra.responder_os, self.contr, {'texto': 'Segunda respuesta'}, None, o['id'])
+        self.assertEqual(e.exception.status, 409)
+        self.assertEqual(self.llamar(obra.cerrar_os, self.insp, {'observacion': 'Conforme'}, None, o['id'])[1]['estado'], 'cerrada')
+
+    def test_las_ordenes_no_se_editan_ni_se_borran(self):
+        o = self.os()
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.c.execute('UPDATE ordenes_servicio SET texto=? WHERE id=?', ('Otro texto', o['id']))
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.c.execute('UPDATE ordenes_servicio SET numero=99 WHERE id=?', (o['id'],))
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.c.execute('DELETE FROM ordenes_servicio')
+
+    def test_validaciones_de_la_orden(self):
+        for cuerpo in ({'asunto': 'ok', 'texto': 'Texto suficientemente largo'}, {'asunto': 'Asunto válido', 'texto': 'corto'}):
+            with self.assertRaises(core.ApiError) as e:
+                self.llamar(obra.emitir_os, self.insp, cuerpo, None, self.oid)
+            self.assertEqual(e.exception.status, 400)
+
+    def test_el_contratista_solo_ve_las_ordenes_de_su_obra(self):
+        self.os()
+        otro_c = self.usuario(self.cba, 'Otro contratista', 'contratista')
+        with self.assertRaises(core.ApiError) as e:
+            self.llamar(obra.listar_os, otro_c, None, None, self.oid)
+        self.assertEqual(e.exception.status, 404)
+        self.assertEqual(len(self.llamar(obra.listar_os, self.contr, None, None, self.oid)[1]), 1)
+
+
+class Documentacion(ObraBase):
+    def subir(self, titulo='Plano de la sala de bombas', uid=None, tipo='plano', **extra):
+        cuerpo = dict({'tipo': tipo, 'titulo': titulo, 'archivo': pdf_de_prueba(titulo)}, **extra)
+        return self.llamar(obra.subir_documento, uid or self.contr, cuerpo, None, self.oid)[1]
+
+    def dosificacion(self, clave='H21', aprobar=True, asentamiento=10):
+        d = self.subir(f'Dosificación {clave}', tipo='dosificacion', clave=clave, datos={'asentamiento_cm': asentamiento})
+        if aprobar:
+            self.llamar(obra.aprobar_documento, self.insp, None, None, d['id'])
+        return d
+
+    def test_se_sube_un_pdf_con_etiquetas_y_se_guarda_por_hash(self):
+        d = self.subir(etiquetas=['Arquitectura', 'sala de bombas', 'arquitectura'], fecha_emision='2026-09-01')
+        self.assertEqual((d['version'], d['revision_estado'], d['mime']), (1, 'pendiente', 'application/pdf'))
+        self.assertEqual(d['etiquetas'], ['Arquitectura', 'sala de bombas'])  # sin repetir
+        self.assertEqual(len(d['sha256']), 64)
+        self.assertTrue(d['url'].endswith('.pdf'))
+        self.assertTrue(core.os.path.isfile(core.os.path.join(core.FOTOS_DIR, d['ruta'])))
+
+    def test_solo_se_aceptan_pdf_o_imagenes_validos(self):
+        for malo in ('data:text/html;base64,PGh0bWw+', 'no es un archivo', 'data:application/pdf;base64,' + base64.b64encode(b'esto no es un pdf').decode()):
+            with self.assertRaises(core.ApiError) as e:
+                self.llamar(obra.subir_documento, self.contr, {'tipo': 'plano', 'titulo': 'Plano malo', 'archivo': malo}, None, self.oid)
+            self.assertEqual(e.exception.status, 400)
+
+    def test_una_version_nueva_reemplaza_sin_borrar(self):
+        v1 = self.subir()
+        v2 = self.llamar(obra.subir_documento, self.contr, {'tipo': 'plano', 'titulo': 'Plano corregido', 'reemplaza_a': v1['id'],
+                                                           'archivo': pdf_de_prueba('v2')}, None, self.oid)[1]
+        self.assertEqual((v2['version'], v2['reemplaza_a']), (2, v1['id']))
+        vigentes = self.llamar(obra.listar_documentos, self.insp, None, {}, self.oid)[1]
+        self.assertEqual([d['id'] for d in vigentes], [v2['id']])
+        todas = self.llamar(obra.listar_documentos, self.insp, None, {'todas': '1'}, self.oid)[1]
+        self.assertEqual(len(todas), 2)
+        with self.assertRaises(core.ApiError) as e:  # la v1 ya tiene reemplazo
+            self.llamar(obra.subir_documento, self.contr, {'tipo': 'plano', 'titulo': 'Otra v2', 'reemplaza_a': v1['id'],
+                                                           'archivo': pdf_de_prueba('otra')}, None, self.oid)
+        self.assertEqual(e.exception.status, 409)
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.c.execute('DELETE FROM documentos_obra')
+
+    def test_quien_carga_no_revisa_y_solo_revisa_el_inspector_asignado(self):
+        d = self.subir(uid=self.insp)  # lo subió el propio inspector
+        with self.assertRaises(core.ApiError) as e:
+            self.llamar(obra.aprobar_documento, self.insp, None, None, d['id'])
+        self.assertEqual(e.exception.status, 403)
+        d2 = self.subir('Plano del contratista')
+        for quien in (self.contr, self.auth, self.admin):
+            with self.assertRaises(core.ApiError) as e:
+                self.llamar(obra.aprobar_documento, quien, None, None, d2['id'])
+            self.assertEqual(e.exception.status, 403)
+        self.assertEqual(self.llamar(obra.aprobar_documento, self.insp, None, None, d2['id'])[1]['revision_estado'], 'aprobado')
+
+    def test_solo_se_aprueba_con_las_observaciones_resueltas(self):
+        d = self.subir()
+        o = self.llamar(obra.agregar_observacion, self.insp, {'texto': 'Falta el desagüe de piso en la sala'}, None, d['id'])[1]
+        self.assertEqual((o['revision_estado'], o['observaciones_abiertas']), ('observado', 1))
+        with self.assertRaises(core.ApiError) as e:
+            self.llamar(obra.aprobar_documento, self.insp, None, None, d['id'])
+        self.assertEqual(e.exception.status, 409)
+        self.assertIn('sin resolver', e.exception.msg)
+        r = self.llamar(obra.resolver_observacion, self.insp, None, None, o['observaciones'][0]['id'])[1]
+        self.assertEqual(r['observaciones_abiertas'], 0)
+        self.assertEqual(self.llamar(obra.aprobar_documento, self.insp, None, None, d['id'])[1]['revision_estado'], 'aprobado')
+
+    def test_filtros_por_tipo_etiqueta_estado_y_vencimiento(self):
+        self.subir('Plano A', etiquetas=['arquitectura'])
+        self.subir('Certificado cemento', tipo='material', etiquetas=['cemento'], fecha_vencimiento=(self.hoy - timedelta(days=5)).strftime('%Y-%m-%d'))
+        self.subir('Certificado aditivo', tipo='material', fecha_vencimiento=(self.hoy + timedelta(days=10)).strftime('%Y-%m-%d'))
+        ver = lambda **q: sorted(d['titulo'] for d in self.llamar(obra.listar_documentos, self.insp, None, q, self.oid)[1])  # noqa: E731
+        self.assertEqual(ver(tipo='material'), ['Certificado aditivo', 'Certificado cemento'])
+        self.assertEqual(ver(etiqueta='Cemento'), ['Certificado cemento'])
+        self.assertEqual(ver(estado='vencido'), ['Certificado cemento'])
+        self.assertEqual(len(ver(estado='pendiente')), 3)
+        por_vencer = {d['titulo']: d['por_vencer'] for d in self.llamar(obra.listar_documentos, self.insp, None, {}, self.oid)[1]}
+        self.assertTrue(por_vencer['Certificado aditivo'])
+        self.assertFalse(por_vencer['Certificado cemento'])  # ese ya venció
+
+    def test_la_dosificacion_necesita_tipo_y_asentamiento(self):
+        for extra in ({}, {'clave': 'H99', 'datos': {'asentamiento_cm': 10}}, {'clave': 'H21'}):
+            with self.assertRaises(core.ApiError) as e:
+                self.subir('Dosificación', tipo='dosificacion', **extra)
+            self.assertEqual(e.exception.status, 400)
+
+    def test_el_contratista_solo_sube_a_su_obra(self):
+        otro_c = self.usuario(self.cba, 'Otro contratista', 'contratista')
+        with self.assertRaises(core.ApiError) as e:
+            self.subir(uid=otro_c)
+        self.assertEqual(e.exception.status, 404)
+
+
+class CalidadHormigon(ObraBase):
+    def setUp(self):
+        super().setUp()
+        self.doc = Documentacion.subir.__get__(self)  # reutiliza el subidor de documentos
+
+    def dosif(self, clave='H21', aprobar=True):
+        d = self.llamar(obra.subir_documento, self.contr, {'tipo': 'dosificacion', 'titulo': f'Dosificación {clave}', 'clave': clave,
+                                                          'datos': {'asentamiento_cm': 10, 'tolerancia_cm': 2}, 'archivo': pdf_de_prueba(clave)},
+                        None, self.oid)[1]
+        if aprobar:
+            self.llamar(obra.aprobar_documento, self.insp, None, None, d['id'])
+
+    def recepcion(self, uid=None, **kw):
+        cuerpo = dict({'fecha': self.hoy.strftime('%Y-%m-%d'), 'hora': '09:30', 'tipo': 'H21', 'volumen_m3': 6, 'elemento': 'Zapata Z3',
+                       'probeta': 'P-01', 'remito': f'R-{secrets.token_hex(2)}', 'temp_ambiente': 22, 'temp_hormigon': 24, 'asentamiento_cm': 10}, **kw)
+        return self.llamar(obra.cargar_recepcion, uid or self.contr, cuerpo, None, self.oid)[1]
+
+    def test_una_recepcion_en_orden_no_tiene_avisos(self):
+        self.dosif()
+        self.assertEqual(self.recepcion()['banderas'], [])
+
+    def test_sin_dosificacion_aprobada_se_avisa(self):
+        self.assertEqual(self.recepcion()['banderas'], ['sin_dosificacion_aprobada'])
+        self.dosif(aprobar=False)  # cargada pero sin aprobar tampoco alcanza
+        self.assertIn('sin_dosificacion_aprobada', self.recepcion()['banderas'])
+
+    def test_asentamiento_y_temperatura_fuera_de_rango_avisan_pero_no_bloquean(self):
+        self.dosif()
+        r = self.recepcion(asentamiento_cm=16, temp_hormigon=34)
+        self.assertEqual(sorted(r['banderas']), ['asentamiento_fuera_de_diseno', 'temperatura_hormigon_alta'])
+        self.assertEqual(r['revision_estado'], 'pendiente')  # se carga igual: decide el inspector
+        self.assertIn('temperatura_hormigon_baja', self.recepcion(temp_hormigon=2)['banderas'])
+        self.assertEqual(self.recepcion(asentamiento_cm=12)['banderas'], [])  # 10 + 2 está dentro de la tolerancia
+        self.assertIn('sin_asentamiento', self.recepcion(asentamiento_cm=None)['banderas'])
+
+    def test_remito_repetido(self):
+        self.dosif()
+        self.recepcion(remito='R-0001')
+        self.assertIn('remito_repetido', self.recepcion(remito='R-0001')['banderas'])
+
+    def test_materiales_y_calibracion_vencidos_al_momento_de_la_recepcion(self):
+        self.dosif()
+        ayer = (self.hoy - timedelta(days=1)).strftime('%Y-%m-%d')
+        for tipo in ('material', 'calibracion'):
+            self.llamar(obra.subir_documento, self.contr, {'tipo': tipo, 'titulo': f'Certificado de {tipo}', 'fecha_vencimiento': ayer,
+                                                          'archivo': pdf_de_prueba(tipo)}, None, self.oid)
+        banderas = self.recepcion()['banderas']
+        self.assertEqual(sorted(banderas), ['calibracion_vencida', 'documento_de_material_vencido'])
+        anterior = (self.hoy - timedelta(days=10)).strftime('%Y-%m-%d')  # antes del vencimiento, estaba vigente
+        self.assertEqual(self.recepcion(fecha=anterior)['banderas'], [])
+
+    def test_quien_carga_la_planilla_no_la_revisa(self):
+        self.dosif()
+        propia = self.recepcion(uid=self.insp)
+        with self.assertRaises(core.ApiError) as e:
+            self.llamar(obra.revisar_recepcion, self.insp, {'accion': 'validar'}, None, propia['id'])
+        self.assertEqual(e.exception.status, 403)
+        ajena = self.recepcion()
+        with self.assertRaises(core.ApiError) as e:
+            self.llamar(obra.revisar_recepcion, self.insp, {'accion': 'observar'}, None, ajena['id'])  # sin motivo
+        self.assertEqual(e.exception.status, 400)
+        self.assertEqual(self.llamar(obra.revisar_recepcion, self.insp, {'accion': 'validar'}, None, ajena['id'])[1]['revision_estado'], 'validada')
+        with self.assertRaises(core.ApiError) as e:
+            self.llamar(obra.revisar_recepcion, self.insp, {'accion': 'validar'}, None, ajena['id'])
+        self.assertEqual(e.exception.status, 409)
+
+    def test_validaciones_de_la_planilla(self):
+        self.dosif()
+        for malo in ({'tipo': 'H99'}, {'hora': '25:00'}, {'volumen_m3': 0}, {'fecha': (self.hoy + timedelta(days=1)).strftime('%Y-%m-%d')},
+                     {'remito': ''}, {'asentamiento_cm': 99}):
+            with self.assertRaises(core.ApiError) as e:
+                self.recepcion(**malo)
+            self.assertEqual(e.exception.status, 400, malo)
+        self.recepcion()  # una válida, para que haya algo que no se pueda borrar
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.c.execute('DELETE FROM recepciones_hormigon')
+
+    def test_los_pendientes_aparecen_en_el_resumen_de_la_obra(self):
+        self.dosif(aprobar=False)
+        self.recepcion()
+        o = self.llamar(obra.emitir_os, self.insp, {'asunto': 'Asunto de prueba', 'texto': 'Texto suficientemente largo'}, None, self.oid)[1]
+        res = self.llamar(obra.ficha_obra, self.insp, None, None, self.oid)[1]['resumen']
+        self.assertEqual((res['os_sin_responder'], res['documentos_por_revisar'], res['recepciones_por_revisar']), (1, 1, 1))
+
+
 class CuentaVecino(ServidorHTTP):
     """El vecino con cuenta reporta y ve sólo lo suyo; nada interno del ente."""
     def setUp(self):

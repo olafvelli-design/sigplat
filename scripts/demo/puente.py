@@ -47,8 +47,8 @@ core.PBKDF2_ITER = 1000  # demo: arranque rápido en el navegador; la app local 
 import seed  # noqa: E402
 
 RUTA_DB = RAIZ + '/data/sigplat.db'
-FOTO_NOMBRE = re.compile(r'^[a-f0-9]{64}\.(jpg|png|webp)$')
-MIME = {'jpg': 'image/jpeg', 'png': 'image/png', 'webp': 'image/webp'}
+FOTO_NOMBRE = re.compile(r'^[a-f0-9]{64}\.(jpg|png|webp|pdf)$')
+MIME = {'jpg': 'image/jpeg', 'png': 'image/png', 'webp': 'image/webp', 'pdf': 'application/pdf'}
 EST = {}
 
 

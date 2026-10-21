@@ -1532,7 +1532,9 @@ async function vistaObras() {
       <span class="meta">Comprometido a la fecha ${pctTxt(r.avance_ideal_pct)} · Certificado ${pctTxt(r.avance_certificado_pct)} · ${r.vencida ? 'Plazo vencido' : 'Quedan ' + r.dias_restantes + ' días'}</span>
       ${r.mes_a_medir && rolEn('inspector') ? `<span class="meta"><b>Para medir: ${mesTxt(r.mes_a_medir)}</b></span>` : ''}
       ${rolEn('administrativo') && r.computos_sin_certificado ? `<span class="meta"><b>${r.computos_sin_certificado} cómputo(s) esperan certificado</b></span>` : ''}
-      ${rolEn('autoridad') && r.certificados_pendientes ? `<span class="meta"><b>${r.certificados_pendientes} certificado(s) esperan autorización</b></span>` : ''}</button></li>`;
+      ${rolEn('autoridad') && r.certificados_pendientes ? `<span class="meta"><b>${r.certificados_pendientes} certificado(s) esperan autorización</b></span>` : ''}
+      ${rolEn('contratista') && r.os_sin_responder ? `<span class="meta"><b>${r.os_sin_responder} orden(es) de servicio sin responder</b></span>` : ''}
+      ${rolEn('inspector') && (r.documentos_por_revisar || r.recepciones_por_revisar) ? `<span class="meta"><b>Para revisar: ${r.documentos_por_revisar} documento(s) y ${r.recepciones_por_revisar} planilla(s) de hormigón</b></span>` : ''}</button></li>`;
   }).join('') : '<li class="vacio">No hay obras asignadas a tu usuario.</li>';
   $('#listaObras').onclick = e => { const b = e.target.closest('[data-obra]'); if (b) { S.obra = { id: +b.dataset.obra, tab: null }; vistaObras(); } };
 }
@@ -1541,10 +1543,10 @@ async function vistaObras() {
 function gruposObra() {
   return [
     { grupo: 'SIGO · Contrato y certificación', tabs: [['resumen', 'Resumen'], ['computos', 'Cómputos'], ['certificados', 'Certificados']] },
-    { grupo: 'SIGUE · Campo', tabs: [['medicion', 'Medición del mes']] },
+    { grupo: 'SIGUE · Campo', tabs: [['medicion', 'Medición del mes'], ['libro', 'Libro de obra'], ['documentos', 'Documentación'], ['calidad', 'Calidad']] },
   ];
 }
-const tabInicialObra = () => rolEn('inspector') ? 'medicion' : rolEn('administrativo', 'autoridad') ? 'certificados' : 'resumen';
+const tabInicialObra = () => rolEn('inspector') ? 'medicion' : rolEn('administrativo', 'autoridad') ? 'certificados' : rolEn('contratista') ? 'libro' : 'resumen';
 
 async function vistaObra() {
   const f = await api('GET', '/obras/' + S.obra.id);
@@ -1559,12 +1561,28 @@ async function vistaObra() {
       <div id="obraCuerpo" aria-live="polite"></div></section>`;
   $('#obraVolver').onclick = () => { S.obra = { id: null, tab: null }; vistaObras(); };
   document.querySelector('.modulos').onclick = e => { const b = e.target.closest('[data-otab]'); if (b) { S.obra.tab = b.dataset.otab; vistaObra(); } };
-  const pintor = { resumen: tabResumen, computos: tabComputos, certificados: tabCertificados, medicion: tabMedicion }[S.obra.tab];
+  const pintor = { resumen: tabResumen, computos: tabComputos, certificados: tabCertificados, medicion: tabMedicion, libro: tabLibro,
+                   documentos: tabDocumentos, calidad: tabCalidad }[S.obra.tab];
   await pintor(f);
+}
+
+// lo que le toca atender a cada rol, con un atajo a la pestaña donde se resuelve
+function pendientesObra(r) {
+  const items = [];
+  if (rolEn('inspector')) {
+    if (r.mes_a_medir) items.push(['medicion', `Medir el avance de ${mesTxt(r.mes_a_medir)}`]);
+    if (r.documentos_por_revisar) items.push(['documentos', `${r.documentos_por_revisar} documento(s) por revisar`]);
+    if (r.recepciones_por_revisar) items.push(['calidad', `${r.recepciones_por_revisar} planilla(s) de hormigón por revisar`]);
+  }
+  if (rolEn('contratista') && r.os_sin_responder) items.push(['libro', `${r.os_sin_responder} orden(es) de servicio sin responder`]);
+  if (rolEn('administrativo') && r.computos_sin_certificado) items.push(['certificados', `${r.computos_sin_certificado} cómputo(s) esperan certificado`]);
+  if (rolEn('autoridad') && r.certificados_pendientes) items.push(['certificados', `${r.certificados_pendientes} certificado(s) esperan autorización`]);
+  return items.length ? `<h3>Para atender</h3><div class="chips">${items.map(([k, t]) => `<button type="button" class="chip" data-ir="${k}">${esc(t)}</button>`).join('')}</div>` : '';
 }
 
 async function tabResumen(f) {
   const r = f.resumen, cv = f.curva, d = cv.desvio;
+  $('#obraCuerpo').onclick = e => { const b = e.target.closest('[data-ir]'); if (b) { S.obra.tab = b.dataset.ir; vistaObra(); } };
   $('#obraCuerpo').innerHTML = `
     <div class="kpis-obra">
       <div class="card"><div class="l">Monto de contrato</div><div class="v">${pesos(r.monto_contrato_cent)}</div></div>
@@ -1576,6 +1594,7 @@ async function tabResumen(f) {
       <div class="card"><div class="l">Desvío (certificado − comprometido)</div><div class="v">${d.valor === null ? '—' : (d.valor > 0 ? '+' : '') + num(d.valor, 2) + ' pp'}</div>
         <div class="l">n = ${d.n} · ${esc(d.nota)}</div></div>
     </div>
+    ${pendientesObra(r)}
     <h3>Curva de avance: comprometido contra certificado</h3>
     ${graficoCurva(cv, new Date().toISOString().slice(0, 7))}
     <details><summary>Ver los números de la curva</summary><div class="tabla-scroll"><table>
@@ -1857,6 +1876,218 @@ async function editorComputo(kid) {
       actualizar();
       mensaje($('#medMsg'), `Se completaron ${cargados} ítems desde la planilla${ignorados.length ? ` (se ignoraron ${ignorados.length} filas con ítems que no existen: ${ignorados.slice(0, 5).join(', ')})` : ''}. Revisá y guardá.`, true);
     } catch (err) { mensaje($('#medMsg'), err.message, false); }
+  };
+}
+
+// ---------- Libro de obra (SIGUE) ----------
+const ESTADO_OS = { emitida: ['Emitida: espera respuesta', 'aviso'], respondida: ['Respondida: espera cierre', 'info'], cerrada: ['Cerrada', 'ok'] };
+const esInspectorDe = f => rolEn('inspector') && f.inspector && f.inspector.id === S.usuario.id;
+
+async function tabLibro(f) {
+  const cont = $('#obraCuerpo'), soyInsp = esInspectorDe(f), soyContr = rolEn('contratista');
+  const lista = await api('GET', `/obras/${f.id}/ordenes-servicio`);
+  cont.innerHTML = `<p class="small">Libro de obra: las órdenes de servicio se numeran en orden, sin saltos, y <b>no se pueden editar ni borrar</b>. El contratista responde una vez y el inspector la cierra.</p>
+    ${soyInsp ? '<div class="row"><button type="button" class="big" id="osNueva">+ Nueva orden de servicio</button></div>' : ''}
+    <div id="osMsg"></div>
+    ${lista.length ? lista.slice().reverse().map(o => `<div class="tarjeta"><div class="row"><b>Orden de servicio N° ${o.numero}</b><span class="small">${dia(o.fecha)}</span>${etiqueta(ESTADO_OS[o.estado][0], ESTADO_OS[o.estado][1])}</div>
+      <div><b>${esc(o.asunto)}</b></div><p>${esc(o.texto)}</p><div class="small">Emitida por ${esc(o.emitida_por_nombre)} · ${fmt(o.emitida_at)}</div>
+      ${o.respuesta ? `<div class="msg ok" role="note"><b>Respuesta del contratista</b> (${esc(o.respondida_por_nombre)}, ${fmt(o.respondida_at)}):<br>${esc(o.respuesta)}</div>` : ''}
+      ${o.estado === 'cerrada' ? `<div class="small">Cerrada por ${esc(o.cerrada_por_nombre)} · ${fmt(o.cerrada_at)}${o.cierre_obs ? ' · ' + esc(o.cierre_obs) : ''}</div>` : ''}
+      <div class="row">${soyContr && o.estado === 'emitida' ? `<button type="button" data-resp="${o.id}">Responder</button>` : ''}
+        ${soyInsp && o.estado === 'respondida' ? `<button type="button" data-cerrar="${o.id}">Cerrar la orden</button>` : ''}</div></div>`).join('') : '<p class="vacio small">Todavía no hay órdenes de servicio.</p>'}`;
+  const terminar = async txt => { toast(txt); await vistaObra(); };
+  if ($('#osNueva')) $('#osNueva').onclick = async () => {
+    const r = await modal({ titulo: 'Nueva orden de servicio', html: `<label for="mAsunto">Asunto</label><input id="mAsunto" maxlength="120" autocomplete="off">
+      <label for="mTexto">Qué se ordena</label><textarea id="mTexto" maxlength="2000"></textarea>
+      <p class="small">Se numera sola y queda en el libro: después no se puede editar ni borrar.</p><p class="error err-dlg" role="alert"></p>`,
+      botones: [{ id: 'no', texto: 'Volver', cls: 'sec' }, { id: 'ok', texto: 'Emitir', valor: d => ({ asunto: d.querySelector('#mAsunto').value.trim(), texto: d.querySelector('#mTexto').value.trim() }),
+        validar: d => d.querySelector('#mAsunto').value.trim().length < 3 ? 'El asunto necesita al menos 3 letras.' : d.querySelector('#mTexto').value.trim().length < 10 ? 'Explicá qué se ordena (al menos 10 letras).' : null }],
+      alAbrir: d => setTimeout(() => d.querySelector('#mAsunto').focus(), 30) });
+    if (!r || r.id !== 'ok') return;
+    try { await api('POST', `/obras/${f.id}/ordenes-servicio`, r.valor); await terminar('Orden de servicio emitida'); } catch (err) { mensaje($('#osMsg'), err.message, false); }
+  };
+  cont.onclick = async e => {
+    const rb = e.target.closest('[data-resp]'), cb = e.target.closest('[data-cerrar]');
+    try {
+      if (rb) {
+        const t = await pedirTexto({ titulo: 'Responder la orden de servicio', etiqueta: 'Tu respuesta (descargo). Se responde una sola vez.', minimo: 5, boton: 'Enviar respuesta' });
+        if (t) { await api('POST', `/ordenes-servicio/${rb.dataset.resp}/respuesta`, { texto: t }); await terminar('Respuesta enviada'); }
+      }
+      if (cb) { await api('POST', `/ordenes-servicio/${cb.dataset.cerrar}/cerrar`, {}); await terminar('Orden cerrada'); }
+    } catch (err) { mensaje($('#osMsg'), err.message, false); }
+  };
+}
+
+// ---------- Documentación técnica (SIGUE) ----------
+const TIPO_DOC = { plano: 'Planos', material: 'Materiales', dosificacion: 'Dosificaciones', ensayo: 'Ensayos', calibracion: 'Calibraciones', planilla: 'Planillas', otro: 'Otros' };
+const ESTADO_DOC = { pendiente: ['Pendiente de revisión', 'aviso'], observado: ['Observado', 'malo'], aprobado: ['Aprobado', 'ok'] };
+
+function leerArchivo(archivo) {
+  return new Promise((ok, mal) => {
+    if (archivo.size > 3 * 1024 * 1024) return mal(new Error('El archivo pesa más de 3 MB.'));
+    const l = new FileReader();
+    l.onload = () => ok(l.result); l.onerror = () => mal(new Error('No se pudo leer el archivo.'));
+    l.readAsDataURL(archivo);
+  });
+}
+async function abrirArchivo(url) {
+  const r = await fetch(url, { credentials: 'same-origin' });
+  if (!r.ok) throw new Error('No se pudo abrir el archivo.');
+  window.open(URL.createObjectURL(await r.blob()), '_blank', 'noopener');
+}
+
+async function tabDocumentos(f) {
+  const cont = $('#obraCuerpo'), D = S.obra.docs = S.obra.docs || { tipo: '', estado: '', q: '', todas: false };
+  const soyInsp = esInspectorDe(f), puedeSubir = soyInsp || rolEn('contratista');
+  const todos = await api('GET', `/obras/${f.id}/documentos?todas=${D.todas ? 1 : 0}`);
+  const pintar = () => {
+    const lista = todos.filter(d => (!D.tipo || d.tipo === D.tipo) && (!D.estado || (D.estado === 'vencido' ? d.vencido : d.revision_estado === D.estado))
+      && (!D.q.trim() || (d.titulo + ' ' + d.etiquetas.join(' ')).toLowerCase().includes(D.q.trim().toLowerCase())));
+    $('#docLista').innerHTML = lista.length ? lista.map(d => {
+      const [te, tt] = ESTADO_DOC[d.revision_estado], propio = d.subido_por === S.usuario.id;
+      return `<div class="tarjeta"><div class="row"><b>${esc(d.titulo)}</b><span class="small">v${d.version}${d.vigente ? '' : ' (anterior)'}</span>${etiqueta(te, tt)}
+        ${d.vencido ? etiqueta('Vencido', 'malo') : d.por_vencer ? etiqueta(`Vence en ${d.dias_para_vencer} días`, 'aviso') : ''}</div>
+        <div class="small">${esc(TIPO_DOC[d.tipo])}${d.clave ? ' · ' + esc(d.clave) : ''}${d.datos.asentamiento_cm !== undefined ? ` · asentamiento ${num(d.datos.asentamiento_cm)} ± ${num(d.datos.tolerancia_cm)} cm` : ''}
+          · Subido por ${esc(d.subido_por_nombre)} el ${fmt(d.subido_at)}${d.fecha_emision ? ' · Emitido ' + dia(d.fecha_emision) : ''}${d.fecha_vencimiento ? ' · Vence ' + dia(d.fecha_vencimiento) : ''}</div>
+        ${d.etiquetas.length ? `<div>${d.etiquetas.map(t => `<span class="badge">${esc(t)}</span>`).join('')}</div>` : ''}
+        ${d.observaciones.map(o => `<div class="small">• ${esc(o.texto)} <i>(${esc(o.autor_nombre)})</i> ${o.resuelta ? '<span class="b-ok"><b>✓ Resuelta</b></span>' : '<span class="b-bad"><b>Abierta</b></span>'}
+          ${!o.resuelta && soyInsp && !propio && d.vigente ? `<button type="button" class="sec" data-resolver="${o.id}">Marcar como resuelta</button>` : ''}</div>`).join('')}
+        <div class="row"><button type="button" class="sec" data-abrir="${esc(d.url)}">📄 Abrir el archivo</button>
+          ${puedeSubir && d.vigente ? `<button type="button" class="sec" data-nueva="${d.id}">Subir versión nueva</button>` : ''}
+          ${soyInsp && !propio && d.vigente ? `<button type="button" class="sec" data-observar="${d.id}">Observar</button>${d.revision_estado !== 'aprobado' ? `<button type="button" data-aprobar="${d.id}">Aprobar</button>` : ''}` : ''}</div></div>`;
+    }).join('') : '<p class="vacio small">No hay documentos con esos filtros.</p>';
+  };
+  const chips = (clave, opciones) => opciones.map(([v, l]) => `<button type="button" class="chip" data-f="${clave}" data-v="${v}" aria-pressed="${D[clave] === v}">${esc(l)}</button>`).join('');
+  cont.innerHTML = `<p class="small">Legajo técnico de la obra. Cada versión nueva reemplaza a la anterior sin borrarla. Quien carga un documento no lo revisa.</p>
+    <div class="row">${puedeSubir ? '<button type="button" class="big" id="docSubir">+ Subir un documento</button>' : ''}</div>
+    <label class="sr" for="docQ">Buscar por título o etiqueta</label><input id="docQ" type="search" placeholder="Buscar por título o etiqueta" value="${esc(D.q)}" autocomplete="off">
+    <div class="chips" role="group" aria-label="Tipo de documento">${chips('tipo', [['', 'Todos'], ...Object.entries(TIPO_DOC)])}</div>
+    <div class="chips" role="group" aria-label="Estado">${chips('estado', [['', 'Cualquier estado'], ['pendiente', 'Pendientes'], ['observado', 'Observados'], ['aprobado', 'Aprobados'], ['vencido', 'Vencidos']])}</div>
+    <label><input type="checkbox" id="docTodas" ${D.todas ? 'checked' : ''}> Incluir las versiones anteriores</label>
+    <div id="docMsg"></div><div id="docLista"></div>`;
+  pintar();
+  $('#docQ').oninput = () => { D.q = $('#docQ').value; pintar(); };
+  $('#docTodas').onchange = () => { D.todas = $('#docTodas').checked; vistaObra(); };
+  const recargar = async txt => { toast(txt); await vistaObra(); };
+  if ($('#docSubir')) $('#docSubir').onclick = () => subirDocumento(f, null, recargar);
+  cont.onclick = async e => {
+    const fb = e.target.closest('[data-f]');
+    if (fb) { D[fb.dataset.f] = fb.dataset.v; return vistaObra(); }
+    const ab = e.target.closest('[data-abrir]'), nv = e.target.closest('[data-nueva]'), ob = e.target.closest('[data-observar]'), ap = e.target.closest('[data-aprobar]'), rs = e.target.closest('[data-resolver]');
+    try {
+      if (ab) await abrirArchivo(ab.dataset.abrir);
+      if (nv) subirDocumento(f, todos.find(d => d.id === +nv.dataset.nueva), recargar);
+      if (ob) { const t = await pedirTexto({ titulo: 'Observar el documento', etiqueta: 'Qué hay que corregir', boton: 'Registrar observación' });
+        if (t) { await api('POST', `/documentos/${ob.dataset.observar}/observaciones`, { texto: t }); await recargar('Observación registrada'); } }
+      if (ap) { await api('POST', `/documentos/${ap.dataset.aprobar}/aprobar`, {}); await recargar('Documento aprobado'); }
+      if (rs) { await api('POST', `/observaciones/${rs.dataset.resolver}/resolver`, {}); await recargar('Observación resuelta'); }
+    } catch (err) { mensaje($('#docMsg'), err.message, false); $('#docMsg').scrollIntoView({ block: 'center' }); }
+  };
+}
+
+async function subirDocumento(f, anterior, recargar) {
+  const tipos = (S.config.obra && S.config.obra.hormigon && S.config.obra.hormigon.tipos) || ['H13', 'H17', 'H21', 'H25'];
+  const r = await modal({
+    titulo: anterior ? `Versión nueva de "${anterior.titulo}"` : 'Subir un documento',
+    html: `<label for="dTipo">Tipo</label><select id="dTipo" ${anterior ? 'disabled' : ''}>${Object.entries(TIPO_DOC).map(([k, v]) => `<option value="${k}" ${anterior && anterior.tipo === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select>
+      <label for="dTitulo">Título</label><input id="dTitulo" maxlength="120" autocomplete="off" value="${anterior ? esc(anterior.titulo) : ''}">
+      <div id="dDosif" hidden><label for="dClave">Tipo de hormigón</label><select id="dClave">${tipos.map(t => `<option ${anterior && anterior.clave === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>
+        <label for="dAsent">Asentamiento de diseño (cm)</label><input id="dAsent" inputmode="decimal" value="${anterior && anterior.datos.asentamiento_cm !== undefined ? anterior.datos.asentamiento_cm : '10'}"></div>
+      <label for="dEtiq">Etiquetas (separadas por coma)</label><input id="dEtiq" autocomplete="off" value="${anterior ? esc(anterior.etiquetas.join(', ')) : ''}" placeholder="por ejemplo: arquitectura, sala de bombas">
+      <label for="dEmi">Fecha de emisión (opcional)</label><input id="dEmi" type="date">
+      <label for="dVen">Fecha de vencimiento (opcional: certificados y calibraciones)</label><input id="dVen" type="date">
+      <label for="dArch">Archivo (PDF o imagen, hasta 3 MB)</label><input id="dArch" type="file" accept="application/pdf,image/*">
+      <p class="error err-dlg" role="alert"></p>`,
+    botones: [{ id: 'no', texto: 'Volver', cls: 'sec' }, { id: 'ok', texto: 'Subir',
+      valor: d => ({ tipo: d.querySelector('#dTipo').value, titulo: d.querySelector('#dTitulo').value.trim(), clave: d.querySelector('#dClave').value,
+        asent: numEntrada(d.querySelector('#dAsent').value), etiquetas: d.querySelector('#dEtiq').value.split(',').map(x => x.trim()).filter(Boolean),
+        emision: d.querySelector('#dEmi').value, venc: d.querySelector('#dVen').value, archivo: d.querySelector('#dArch').files[0] }),
+      validar: d => d.querySelector('#dTitulo').value.trim().length < 3 ? 'El título necesita al menos 3 letras.' : !d.querySelector('#dArch').files[0] ? 'Elegí el archivo.'
+        : (d.querySelector('#dTipo').value === 'dosificacion' && Number.isNaN(numEntrada(d.querySelector('#dAsent').value))) ? 'El asentamiento de diseño debe ser un número.' : null }],
+    alAbrir: d => { const t = d.querySelector('#dTipo'), mostrar = () => { d.querySelector('#dDosif').hidden = t.value !== 'dosificacion'; }; t.onchange = mostrar; mostrar(); },
+  });
+  if (!r || r.id !== 'ok') return;
+  const v = r.valor;
+  try {
+    const cuerpo = { tipo: v.tipo, titulo: v.titulo, etiquetas: v.etiquetas, fecha_emision: v.emision || null, fecha_vencimiento: v.venc || null, archivo: await leerArchivo(v.archivo) };
+    if (v.tipo === 'dosificacion') { cuerpo.clave = v.clave; cuerpo.datos = { asentamiento_cm: v.asent }; }
+    if (anterior) cuerpo.reemplaza_a = anterior.id;
+    await api('POST', `/obras/${f.id}/documentos`, cuerpo);
+    await recargar(anterior ? 'Versión nueva subida' : 'Documento subido');
+  } catch (err) { mensaje($('#docMsg'), err.message, false); }
+}
+
+// ---------- Calidad: planilla de recepción de hormigón (SIGUE) ----------
+const FLAG_HORMIGON = {
+  sin_dosificacion_aprobada: 'No hay una dosificación aprobada de ese tipo de hormigón',
+  asentamiento_fuera_de_diseno: 'El asentamiento está fuera del diseño',
+  sin_asentamiento: 'No se midió el asentamiento',
+  temperatura_hormigon_alta: 'La temperatura del hormigón es más alta que el umbral',
+  temperatura_hormigon_baja: 'La temperatura del hormigón es más baja que el umbral',
+  remito_repetido: 'El remito ya estaba cargado',
+  documento_de_material_vencido: 'Hay certificados de materiales vencidos a esa fecha',
+  calibracion_vencida: 'La calibración de la prensa estaba vencida a esa fecha',
+};
+const ESTADO_REC = { pendiente: ['Pendiente de revisión', 'aviso'], validada: ['Validada', 'ok'], observada: ['Observada', 'malo'] };
+
+async function tabCalidad(f) {
+  const cont = $('#obraCuerpo'), soyInsp = esInspectorDe(f), puedeCargar = soyInsp || rolEn('contratista');
+  const [recs, docs] = await Promise.all([api('GET', `/obras/${f.id}/recepciones`), api('GET', `/obras/${f.id}/documentos`)]);
+  const tipos = (S.config.obra && S.config.obra.hormigon && S.config.obra.hormigon.tipos) || ['H13', 'H17', 'H21', 'H25'];
+  const dosifs = tipos.map(t => ({ t, d: docs.find(x => x.tipo === 'dosificacion' && x.clave === t) }));
+  const alertas = docs.filter(d => ['material', 'calibracion'].includes(d.tipo) && (d.vencido || d.por_vencer));
+  const hoy = new Date(), hh = String(hoy.getHours()).padStart(2, '0') + ':' + String(hoy.getMinutes()).padStart(2, '0');
+  cont.innerHTML = `<p class="small">Control de calidad del hormigón. Los avisos <b>informan y no deciden</b>: la carga no se bloquea y la revisión la hace el inspector, nunca quien cargó la planilla. Los umbrales son de ejemplo y están pendientes de validar con un inspector real.</p>
+    <h3>Dosificaciones</h3><div class="chips">${dosifs.map(({ t, d }) => !d ? etiqueta(`${t}: sin dosificación`, 'malo') : d.revision_estado === 'aprobado'
+      ? etiqueta(`${t}: aprobada (${num(d.datos.asentamiento_cm)} ± ${num(d.datos.tolerancia_cm)} cm)`, 'ok') : etiqueta(`${t}: dosificación sin aprobar`, 'aviso')).join('')}</div>
+    ${alertas.length ? `<h3>Certificados y calibraciones por atender</h3>${alertas.map(d => `<div class="flag"><span aria-hidden="true">⚠️</span><span>${esc(d.titulo)}: ${d.vencido ? '<b>vencido</b> el ' + dia(d.fecha_vencimiento) : 'vence en ' + d.dias_para_vencer + ' días (' + dia(d.fecha_vencimiento) + ')'}</span></div>`).join('')}` : ''}
+    <h3>Planilla de recepción (${recs.length})</h3>
+    <div class="row">${puedeCargar ? '<button type="button" class="big" id="recNueva">+ Cargar una recepción</button>' : ''}<button type="button" class="sec" id="recCsv">⬇ Descargar planilla (CSV)</button></div>
+    <div id="recForm"></div><div id="recMsg"></div>
+    ${recs.length ? recs.map(r => { const [te, tt] = ESTADO_REC[r.revision_estado], propia = r.cargada_por === S.usuario.id;
+      return `<div class="tarjeta"><div class="row"><b>${dia(r.fecha)} ${esc(r.hora)}</b><span><b>${esc(r.tipo)}</b> · ${num(r.volumen_m3, 2)} m³</span>${etiqueta(te, tt)}</div>
+        <div class="small">${esc(r.elemento)} · Remito ${esc(r.remito)}${r.probeta ? ' · Probeta ' + esc(r.probeta) : ''}<br>Temperatura ambiente ${num(r.temp_ambiente, 1)} °C · del hormigón ${num(r.temp_hormigon, 1)} °C · Asentamiento ${num(r.asentamiento_cm, 1)} cm · Cargada por ${esc(r.cargada_por_nombre)}</div>
+        ${r.banderas.map(b => `<div class="flag"><span aria-hidden="true">⚠️</span><span>${esc(FLAG_HORMIGON[b] || b)}</span></div>`).join('') || '<div class="small b-ok">✓ Sin avisos</div>'}
+        ${r.observacion ? `<div class="small">Observación del inspector: ${esc(r.observacion)}</div>` : ''}
+        ${soyInsp && !propia && r.revision_estado === 'pendiente' ? `<div class="row"><button type="button" data-rv="${r.id}">Validar</button><button type="button" class="sec" data-ro="${r.id}">Observar</button></div>` : ''}
+        ${soyInsp && propia && r.revision_estado === 'pendiente' ? '<div class="small">La cargaste vos: la revisa otra persona.</div>' : ''}</div>`; }).join('') : '<p class="vacio small">Todavía no hay recepciones cargadas.</p>'}`;
+  $('#recCsv').onclick = () => descargarCSV('planilla-recepcion-hormigon.csv',
+    [['fecha', 'hora', 'tipo', 'volumen_m3', 'elemento', 'probeta', 'remito', 'temp_ambiente', 'temp_hormigon', 'asentamiento_cm', 'estado', 'avisos'],
+      ...recs.map(r => [r.fecha, r.hora, r.tipo, r.volumen_m3, r.elemento, r.probeta || '', r.remito, r.temp_ambiente ?? '', r.temp_hormigon ?? '', r.asentamiento_cm ?? '',
+        ESTADO_REC[r.revision_estado][0], r.banderas.map(b => FLAG_HORMIGON[b] || b).join(' | ')])]);
+  const terminar = async txt => { toast(txt); await vistaObra(); };
+  if ($('#recNueva')) $('#recNueva').onclick = () => {
+    $('#recForm').innerHTML = `<div class="card"><h3 style="margin-top:0">Nueva recepción</h3><form id="formRec" novalidate>
+      <div class="row"><div><label for="rFecha">Fecha</label><input id="rFecha" type="date" value="${hoy.toISOString().slice(0, 10)}" max="${hoy.toISOString().slice(0, 10)}"></div>
+        <div><label for="rHora">Hora de llegada</label><input id="rHora" type="time" value="${hh}"></div></div>
+      <label for="rTipo">Tipo de hormigón</label><select id="rTipo">${tipos.map(t => `<option>${esc(t)}</option>`).join('')}</select>
+      <label for="rVol">Volumen (m³)</label><input id="rVol" inputmode="decimal" placeholder="6">
+      <label for="rElem">Elemento estructural</label><input id="rElem" autocomplete="off" placeholder="por ejemplo: Zapata Z3">
+      <div class="row"><div><label for="rProb">Designación de probeta</label><input id="rProb" autocomplete="off"></div><div><label for="rRem">N° de remito</label><input id="rRem" autocomplete="off"></div></div>
+      <div class="row"><div><label for="rTa">Temp. ambiente (°C)</label><input id="rTa" inputmode="decimal"></div><div><label for="rTh">Temp. del hormigón (°C)</label><input id="rTh" inputmode="decimal"></div>
+        <div><label for="rAs">Asentamiento (cm)</label><input id="rAs" inputmode="decimal"></div></div>
+      <p class="error" id="recErr" role="alert"></p><div class="row"><button type="submit" class="big">Cargar recepción</button><button type="button" class="sec" id="recCancelar">Cancelar</button></div></form></div>`;
+    $('#rVol').focus();
+    $('#recCancelar').onclick = () => { $('#recForm').innerHTML = ''; };
+    $('#formRec').onsubmit = async ev => {
+      ev.preventDefault();
+      const opc = id => { const v = $(id).value.trim(); return v === '' ? null : numEntrada(v); };
+      const cuerpo = { fecha: $('#rFecha').value, hora: $('#rHora').value, tipo: $('#rTipo').value, volumen_m3: numEntrada($('#rVol').value), elemento: $('#rElem').value.trim(),
+        probeta: $('#rProb').value.trim() || null, remito: $('#rRem').value.trim(), temp_ambiente: opc('#rTa'), temp_hormigon: opc('#rTh'), asentamiento_cm: opc('#rAs') };
+      if (![cuerpo.volumen_m3, cuerpo.temp_ambiente ?? 0, cuerpo.temp_hormigon ?? 0, cuerpo.asentamiento_cm ?? 0].every(Number.isFinite)) { $('#recErr').textContent = 'Revisá los números: alguno no es válido.'; return; }
+      if (!cuerpo.volumen_m3) { $('#recErr').textContent = 'El volumen tiene que ser mayor que cero.'; return; }
+      if (!cuerpo.remito || cuerpo.elemento.length < 3) { $('#recErr').textContent = 'Completá el elemento estructural y el número de remito.'; return; }
+      try { const r = await api('POST', `/obras/${f.id}/recepciones`, cuerpo); await terminar(r.banderas.length ? `Recepción cargada con ${r.banderas.length} aviso(s)` : 'Recepción cargada'); }
+      catch (err) { $('#recErr').textContent = err.message; }
+    };
+  };
+  cont.onclick = async e => {
+    const v = e.target.closest('[data-rv]'), o = e.target.closest('[data-ro]');
+    try {
+      if (v) { await api('POST', `/recepciones/${v.dataset.rv}/revision`, { accion: 'validar' }); await terminar('Recepción validada'); }
+      if (o) { const t = await pedirTexto({ titulo: 'Observar la recepción', etiqueta: 'Qué observás (por ejemplo, qué se hace con ese camión)', boton: 'Registrar observación' });
+        if (t) { await api('POST', `/recepciones/${o.dataset.ro}/revision`, { accion: 'observar', observacion: t }); await terminar('Recepción observada'); } }
+    } catch (err) { mensaje($('#recMsg'), err.message, false); }
   };
 }
 

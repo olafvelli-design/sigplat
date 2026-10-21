@@ -25,7 +25,7 @@ STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
 DB_PATH = os.environ.get('SIGPLAT_DB', os.path.join(core.BASE_DIR, 'data', 'sigplat.db'))
 MAX_BODY = 4 * 1024 * 1024
 COOKIE = 'sigplat_sesion'
-FOTO_NOMBRE = re.compile(r'^[a-f0-9]{64}\.(jpg|png|webp)$')
+FOTO_NOMBRE = re.compile(r'^[a-f0-9]{64}\.(jpg|png|webp|pdf)$')  # fotos y, en el Modo obra, documentos PDF
 LOCK = threading.Lock()
 CONEXION = {}
 

@@ -255,7 +255,121 @@ def sembrar_obra(s, simples):
     parcial = [{'item_id': ids[nro], 'cantidad': round(meses.get(m(4), 0) * 0.4, 3)} for nro, meses in ideal.items() if nro in (6, 8) and meses.get(m(4), 0)]
     obra.guardar_computo(c, ctx({'items': parcial}, insp), v['id'])
     c.commit()
+    sembrar_campo(s, simples, oid, m, en)
     return oid
+
+
+def pdf_ficticio(titulo, lineas=()):
+    """PDF mínimo y válido con texto inventado, para el legajo de la obra ficticia."""
+    textos = [titulo, 'DOCUMENTO FICTICIO DE DEMOSTRACION', 'Generado por el seed de SIGPLAT. Sin valor.'] + list(lineas)
+    esc = lambda t: t.replace('\\', '\\\\').replace('(', '\\(').replace(')', '\\)')  # noqa: E731
+    flujo = ('BT /F1 14 Tf 56 780 Td 20 TL ' + ' '.join(f'({esc(t)}) Tj T*' for t in textos) + ' ET').encode('cp1252', 'replace')
+    objetos = [
+        b'<< /Type /Catalog /Pages 2 0 R >>', b'<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+        b'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+        b'<< /Length ' + str(len(flujo)).encode() + b' >>\nstream\n' + flujo + b'\nendstream',
+        b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>']
+    salida, offsets = bytearray(b'%PDF-1.4\n'), []
+    for i, o in enumerate(objetos, 1):
+        offsets.append(len(salida))
+        salida += f'{i} 0 obj\n'.encode() + o + b'\nendobj\n'
+    xref = len(salida)
+    salida += f'xref\n0 {len(objetos) + 1}\n0000000000 65535 f \n'.encode()
+    for off in offsets:
+        salida += f'{off:010d} 00000 n \n'.encode()
+    salida += f'trailer\n<< /Size {len(objetos) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n'.encode()
+    return 'data:application/pdf;base64,' + base64.b64encode(bytes(salida)).decode()
+
+
+def sembrar_campo(s, simples, oid, m, en):
+    """Libro de obra, documentación técnica y planilla de hormigón de la obra ficticia (SIGUE)."""
+    c, base = s.c, s.t
+    insp, contr = simples['inspector'], simples['contratista']
+
+    def a(uid, hora, fn, cuerpo, *args):
+        core.CLOCK['now'] = hora
+        return fn(c, ctx(cuerpo, uid), *args)[1]
+
+    # --- libro de obra: órdenes de servicio ---
+    ordenes = [
+        (en(m(0), 20, 9), 'Presentar el plan de trabajos y el cronograma',
+         'Se solicita presentar, dentro de los 5 días, el plan de trabajos detallado y el cronograma de la obra, con el personal asignado por rubro.',
+         'Se adjunta el plan de trabajos y el cronograma actualizado. Quedamos a disposición para ajustes.', True),
+        (en(m(1), 12, 9), 'Control de calidad de hormigones',
+         'Antes del primer colado hay que presentar la dosificación aprobada de cada tipo de hormigón (H13, H17, H21 y H25), los certificados de '
+         'los materiales y la calibración de la prensa de ensayo. La planilla de recepción se completa en cada camión.',
+         'Se presenta la documentación solicitada. La planilla de recepción queda a cargo del encargado de hormigón.', True),
+        (en(m(2), 8, 9), 'Señalización y cercado perimetral',
+         'Reforzar la señalización y el cercado perimetral del obrador y de la zona de excavación. Informar cuando esté hecho.',
+         'Se completó el cercado y se colocaron los carteles de seguridad. Se adjuntan fotos al legajo.', False),
+        (en(m(3), 15, 9), 'Corregir el plano de la sala de bombas',
+         'El plano de arquitectura de la sala de bombas tiene observaciones cargadas en la documentación. Corregirlo y subir una versión nueva.',
+         'Estamos corrigiendo el plano. La versión nueva se sube esta semana.', False),
+        (en(m(4), 4, 10), 'Hormigón H21 con asentamiento fuera de diseño',
+         'En la planilla de recepción hay un camión de H21 con asentamiento por encima del diseño. Informar las medidas tomadas y el destino de ese hormigón.',
+         None, False),
+    ]
+    for hora, asunto, texto, respuesta, cerrar in ordenes:
+        o = a(insp, hora, obra.emitir_os, {'asunto': asunto, 'texto': texto}, oid)
+        if respuesta:
+            a(contr, hora + timedelta(days=2), obra.responder_os, {'texto': respuesta}, o['id'])
+            if cerrar:
+                a(insp, hora + timedelta(days=4), obra.cerrar_os, {'observacion': 'Conforme.'}, o['id'])
+    c.commit()
+
+    # --- documentación técnica ---
+    dia = lambda n: (base.date() + timedelta(days=n)).strftime('%Y-%m-%d')  # noqa: E731
+    h0 = en(m(2), 20, 10)
+
+    def doc(titulo, tipo, hora, aprobar=None, **extra):
+        d = a(contr, hora, obra.subir_documento, dict({'tipo': tipo, 'titulo': titulo, 'archivo': pdf_ficticio(titulo)}, **extra), oid)
+        if aprobar:
+            a(insp, aprobar, obra.aprobar_documento, None, d['id'])
+        return d
+
+    doc('Informe de calidad del cemento (ficticio)', 'material', h0, h0 + timedelta(days=2), etiquetas=['cemento', 'materiales'],
+        fecha_emision=dia(-200), fecha_vencimiento=dia(160))
+    doc('Certificado del aditivo (ficticio)', 'material', h0, h0 + timedelta(days=2), etiquetas=['aditivo', 'materiales'],
+        fecha_emision=dia(-340), fecha_vencimiento=dia(20))  # por vencer, a propósito
+    doc('Granulometría del agregado fino (ficticia)', 'material', h0, h0 + timedelta(days=2), etiquetas=['áridos', 'materiales'],
+        fecha_emision=dia(-60), fecha_vencimiento=dia(120))
+    doc('Control de humedad de áridos (ficticio)', 'ensayo', h0 + timedelta(hours=1), etiquetas=['áridos', 'humedad'], fecha_emision=dia(-5))
+    for clave, aprobar in (('H13', True), ('H17', False), ('H21', True), ('H25', True)):  # la H17 queda sin aprobar, a propósito
+        doc(f'Dosificación {clave} (ficticia)', 'dosificacion', h0 + timedelta(hours=2), h0 + timedelta(days=2) if aprobar else None,
+            clave=clave, datos={'asentamiento_cm': 10, 'tolerancia_cm': 2}, etiquetas=['hormigón', 'dosificación'], fecha_emision=dia(-30))
+    doc('Calibración de la prensa de ensayo (ficticia)', 'calibracion', h0 + timedelta(hours=3), h0 + timedelta(days=2),
+        etiquetas=['prensa', 'calibración'], fecha_emision=dia(-380), fecha_vencimiento=dia(-15))  # vencida, a propósito
+    doc('Ensayo de resistencia de probetas H21 (ficticio)', 'ensayo', en(m(4), 6, 11), etiquetas=['probetas', 'resistencia'], fecha_emision=dia(-3))
+    doc('Memoria descriptiva de la instalación sanitaria (ficticia)', 'plano', en(m(3), 5, 10), en(m(3), 16, 10),
+        etiquetas=['sanitaria', 'memoria'], fecha_emision=dia(-50))
+    plano = doc('Arquitectura de la sala de bombas y baño (ficticio)', 'plano', en(m(3), 6, 10), etiquetas=['arquitectura', 'sala de bombas'],
+                fecha_emision=dia(-48))
+    for texto in ('La puerta debe ser de dos hojas, con un paso libre mínimo de 1,10 m.', 'Falta indicar el desagüe de piso en la sala de bombas.'):
+        a(insp, en(m(3), 14, 10), obra.agregar_observacion, {'texto': texto}, plano['id'])
+    o1 = c.execute('SELECT id FROM observaciones_documento WHERE documento_id=? ORDER BY id', (plano['id'],)).fetchone()['id']
+    a(insp, en(m(4), 3, 10), obra.resolver_observacion, None, o1)  # una resuelta y la otra abierta
+    c.commit()
+
+    # --- control de calidad: planilla de recepción de hormigón ---
+    recepciones = [  # (mes, día, hora, tipo, m3, elemento, probeta, remito, temp. ambiente, temp. hormigón, asentamiento, quién carga, revisión)
+        (3, 21, 8, 'H13', 4.0, 'Platea de limpieza', 'P-H13-01', 'R-1001', 18, 20, 10, contr, ('validar', None)),
+        (3, 21, 10, 'H21', 6.0, 'Zapata Z1', 'P-H21-01', 'R-1002', 20, 23, 11, contr, ('validar', None)),
+        (3, 23, 9, 'H21', 6.0, 'Zapata Z2', 'P-H21-02', 'R-1003', 22, 24, 10, contr, ('validar', None)),
+        (4, 2, 8, 'H25', 7.5, 'Columnas C1 a C4', 'P-H25-01', 'R-1004', 23, 26, 9, contr, None),
+        (4, 3, 11, 'H21', 6.0, 'Zapata Z3', 'P-H21-03', 'R-1005', 25, 34, 16, contr,
+         ('observar', 'Asentamiento y temperatura fuera de rango: separar las probetas y no usar este camión sin aprobación.')),
+        (4, 5, 9, 'H17', 3.5, 'Vereda de acceso', 'P-H17-01', 'R-1006', 24, 25, 10, contr, None),
+        (4, 6, 10, 'H25', 7.0, 'Losa de la sala de bombas', 'P-H25-02', 'R-1007', 26, 27, 10, contr, None),
+        (4, 8, 8, 'H13', 3.0, 'Contrapiso del baño', None, 'R-1008', 27, 28, 10, insp, None),  # la cargó el inspector: no la puede revisar
+    ]
+    for mes, dia_, hora, tipo, vol, elem, probeta, remito, t_amb, t_h, asent, quien, revision in recepciones:
+        momento = en(m(mes), dia_, hora)
+        r = a(quien, momento, obra.cargar_recepcion, {
+            'fecha': momento.strftime('%Y-%m-%d'), 'hora': momento.strftime('%H:%M'), 'tipo': tipo, 'volumen_m3': vol, 'elemento': elem,
+            'probeta': probeta, 'remito': remito, 'temp_ambiente': t_amb, 'temp_hormigon': t_h, 'asentamiento_cm': asent}, oid)
+        if revision:
+            a(insp, momento + timedelta(hours=5), obra.revisar_recepcion, {'accion': revision[0], 'observacion': revision[1]}, r['id'])
+    c.commit()
 
 
 def construir(ruta, inicio):
