@@ -63,6 +63,10 @@ PERMISOS = {
     'emitir_os': {'inspector'},
     'responder_os': {'contratista'},
     'cerrar_os': {'inspector'},
+    'alta_obra': {'administrativo'},
+    'asignar_obra': {'administrativo'},
+    'subir_legajo': {'administrativo'},
+    'publicar_legajo': {'administrativo'},
     'subir_documento': {'contratista', 'inspector'},
     'revisar_documento': {'inspector'},
     'cargar_recepcion': {'contratista', 'inspector'},
@@ -996,3 +1000,4 @@ def cargar_configs(c):
                ON CONFLICT(codigo) DO UPDATE SET nombre=excluded.nombre, config_json=excluded.config_json''',
             (cfg['codigo'], cfg['nombre'], json.dumps(cfg, ensure_ascii=False), 1 if cfg.get('ficticio') else 0),
         )
+

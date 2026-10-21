@@ -1021,6 +1021,171 @@ def pdf_de_prueba(texto='Documento de prueba'):
     return 'data:application/pdf;base64,' + base64.b64encode(cuerpo.encode('latin-1')).decode()
 
 
+class CodigosYLegajo(ObraBase):
+    DATOS = {'denominacion': 'Refacción ficticia de una escuela', 'contratista': 'Constructora ficticia', 'tipo_contratacion': 'Licitación Presencial - O.P.',
+             'nro_contratacion': '2026/000312', 'expediente': '0045-013500/2026', 'servicio_administrativo': 'Secretaría de Obras (ficticia)',
+             'fecha_replanteo': '2026-12-01', 'plazo_dias': 180}
+
+    def alta(self, uid=None, **cambios):
+        return self.llamar(obra.alta_obra, uid or self.admin, dict(self.DATOS, **cambios))[1]
+
+    def subir(self, oid, tipo='acto_administrativo', titulo=None, uid=None, **extra):
+        titulo = titulo or f'Documento {tipo}'
+        return self.llamar(obra.subir_legajo, uid or self.admin, dict({'tipo': tipo, 'titulo': titulo, 'archivo': pdf_de_prueba(titulo + tipo)}, **extra), None, oid)[1]
+
+    def legajo_completo(self, oid):
+        for t in ('acto_administrativo', 'pliego_condiciones', 'pliego_tecnico', 'plano', 'computo_presupuesto'):
+            self.subir(oid, t)
+
+    # --- códigos ---
+    def test_el_codigo_es_correlativo_unico_y_con_digito_verificador(self):
+        a, b = self.alta(), self.alta(nro_contratacion='2026/000313', expediente='0045-013501/2026')
+        self.assertRegex(a['codigo'], r'^OP-CBA-\d{4}-\d{4}-[0-9K]$')
+        n = lambda o: int(o['codigo'].split('-')[3])  # noqa: E731
+        self.assertEqual(n(b), n(a) + 1)
+        self.assertTrue(obra.codigo_valido(a['codigo']) and obra.codigo_valido(b['codigo']))
+
+    def test_el_digito_detecta_un_error_de_tipeo_y_dos_numeros_cambiados(self):
+        cod = self.alta()['codigo']
+        cuerpo, dv = cod.rsplit('-', 1)
+        mal = cuerpo[:-1] + str((int(cuerpo[-1]) + 1) % 10) + '-' + dv
+        self.assertFalse(obra.codigo_valido(mal))
+        otro = 'OP-CBA-2026-0123'
+        a, b = otro + '-' + obra.digito_codigo(otro), 'OP-CBA-2026-0132-' + obra.digito_codigo(otro)
+        self.assertTrue(obra.codigo_valido(a))
+        self.assertFalse(obra.codigo_valido(b))
+        self.assertFalse(obra.codigo_valido('cualquier cosa'))
+
+    def test_el_codigo_no_se_reutiliza(self):
+        a = self.alta()
+        b = self.alta(nro_contratacion='2026/000400', expediente='0045-013999/2026')
+        self.assertNotEqual(a['codigo'], b['codigo'])
+        ultimo = self.c.execute('SELECT ultimo FROM secuencias_obra WHERE ente_id=?', (self.cba['id'],)).fetchone()[0]
+        self.assertEqual(ultimo, int(b['codigo'].split('-')[3]))  # la secuencia sólo sube
+
+    def test_cada_ente_lleva_su_propia_secuencia(self):
+        ente_b = self.c.execute("SELECT * FROM entes WHERE codigo<>'CBA-PILOTO'").fetchone()
+        self.assertNotEqual(obra.sigla_ente(core.fila(ente_b)), obra.sigla_ente(self.cba))
+
+    # --- datos oficiales de la contratación ---
+    def test_el_alta_valida_los_formatos_del_portal(self):
+        for campo, valor in (('nro_contratacion', 'abc'), ('nro_contratacion', '2026-000312'), ('expediente', '45-1/26'),
+                             ('tipo_contratacion', 'Licitación Presencial'), ('plazo_dias', 0), ('fecha_replanteo', '1/12/2026')):
+            self.assertEqual(self.error(obra.alta_obra, self.admin, dict(self.DATOS, **{campo: valor})).status, 400, campo)
+        for ok in ('2026/000112', '2026/000134.01', '06/2025'):
+            self.assertRegex(ok, obra.NRO_CONTRATACION_RE.pattern)
+
+    def test_no_se_repite_el_numero_de_contratacion_del_servicio_ni_el_expediente(self):
+        self.alta()
+        e = self.error(obra.alta_obra, self.admin, dict(self.DATOS, expediente='0045-099999/2026'))
+        self.assertEqual(e.status, 409)
+        self.assertIn('2026/000312', e.msg)
+        e = self.error(obra.alta_obra, self.admin, dict(self.DATOS, nro_contratacion='2026/000999'))
+        self.assertEqual(e.status, 409)
+        otro_servicio = self.alta(servicio_administrativo='Otro servicio ficticio', expediente='0045-088888/2026')  # mismo número, otro servicio: se admite
+        self.assertEqual(otro_servicio['nro_contratacion'], '2026/000312')
+
+    def test_solo_el_administrativo_da_de_alta_la_obra(self):
+        for quien in (self.insp, self.auth, self.contr):
+            self.assertEqual(self.error(obra.alta_obra, quien, self.DATOS).status, 403)
+
+    def test_la_obra_nueva_nace_preadjudicada_sin_items_y_se_puede_consultar(self):
+        o = self.alta()
+        self.assertEqual((o['estado'], o['legajo_estado']), ('preadjudicada', 'en_armado'))
+        _, f = self.llamar(obra.ficha_obra, self.admin, None, None, o['id'])
+        self.assertEqual(f['resumen']['monto_contrato_cent'], 0)
+        self.assertEqual(f['codigo'], o['codigo'])
+
+    # --- legajo ---
+    def test_sube_el_administrativo_y_nadie_mas(self):
+        o = self.alta()
+        for quien in (self.insp, self.auth, self.contr):
+            self.assertEqual(self.error(obra.subir_legajo, quien, {'tipo': 'plano', 'titulo': 'Planos', 'archivo': pdf_de_prueba()}, o['id']).status, 403)
+
+    def test_no_se_publica_con_el_legajo_incompleto(self):
+        o = self.alta()
+        self.subir(o['id'], 'acto_administrativo')
+        e = self.error(obra.publicar_legajo, self.admin, None, o['id'])
+        self.assertEqual(e.status, 409)
+        self.assertIn('Pliego de Condiciones', e.msg)
+        _, l = self.llamar(obra.ver_legajo, self.admin, None, None, o['id'])
+        self.assertFalse(l['completo'])
+        self.assertTrue(any(r['cumplido'] for r in l['requeridos']))
+
+    def test_publicar_el_legajo_habilita_adjudicar_y_ejecutar_exige_inspector(self):
+        o = self.alta()
+        self.assertEqual(self.error(obra.cambiar_estado_obra, self.admin, {'estado': 'adjudicada'}, o['id']).status, 409)
+        self.legajo_completo(o['id'])
+        _, l = self.llamar(obra.publicar_legajo, self.admin, None, None, o['id'])
+        self.assertEqual(l['estado'], 'publicado')
+        self.assertEqual(self.error(obra.publicar_legajo, self.admin, None, o['id']).status, 409)
+        self.assertEqual(self.llamar(obra.cambiar_estado_obra, self.admin, {'estado': 'adjudicada'}, None, o['id'])[1]['estado'], 'adjudicada')
+        self.assertEqual(self.error(obra.cambiar_estado_obra, self.admin, {'estado': 'en_ejecucion'}, o['id']).status, 409)  # sin inspector
+        self.llamar(obra.asignar_obra, self.admin, {'inspector_id': self.insp, 'contratista_id': self.contr}, None, o['id'])
+        self.assertEqual(self.llamar(obra.cambiar_estado_obra, self.admin, {'estado': 'en_ejecucion'}, None, o['id'])[1]['estado'], 'en_ejecucion')
+
+    def test_los_estados_avanzan_de_a_un_paso(self):
+        o = self.alta()
+        self.assertEqual(self.error(obra.cambiar_estado_obra, self.admin, {'estado': 'en_ejecucion'}, o['id']).status, 409)
+
+    def test_la_asignacion_solo_acepta_usuarios_del_rol_y_del_ente(self):
+        o = self.alta()
+        self.assertEqual(self.error(obra.asignar_obra, self.admin, {'inspector_id': self.contr}, o['id']).status, 400)
+        self.assertEqual(self.error(obra.asignar_obra, self.admin, {}, o['id']).status, 400)
+        self.assertEqual(self.llamar(obra.asignar_obra, self.admin, {'inspector_id': self.insp}, None, o['id'])[1]['inspector_id'], self.insp)
+
+    def test_las_circulares_se_numeran_solas_en_orden(self):
+        o = self.alta()
+        a, b = self.subir(o['id'], 'circular', 'Respuesta a consultas'), self.subir(o['id'], 'circular', 'Segunda respuesta')
+        self.assertEqual((a['numero'], b['numero']), (1, 2))
+        self.assertIsNone(self.subir(o['id'], 'plano')['numero'])
+
+    def test_una_version_nueva_pide_motivo_reemplaza_y_no_borra(self):
+        o = self.alta()
+        v1 = self.subir(o['id'], 'plano', 'Planos de arquitectura')
+        self.assertEqual(self.error(obra.subir_legajo, self.admin, {'tipo': 'plano', 'titulo': 'Planos rev. 1', 'archivo': pdf_de_prueba('rev1'),
+                                                                     'reemplaza_a': v1['id']}, o['id']).status, 400)
+        v2 = self.subir(o['id'], 'plano', 'Planos rev. 1', archivo=pdf_de_prueba('rev1'), reemplaza_a=v1['id'], motivo_version='Se corrigió una cota.')
+        self.assertEqual(v2['version'], 2)
+        _, l = self.llamar(obra.ver_legajo, self.admin, None, None, o['id'])
+        vig = {d['id']: d['vigente'] for d in l['documentos']}
+        self.assertEqual(vig, {v1['id']: False, v2['id']: True})
+        self.assertEqual(self.error(obra.subir_legajo, self.admin, {'tipo': 'plano', 'titulo': 'Otra', 'archivo': pdf_de_prueba('rev2'),
+                                                                     'reemplaza_a': v1['id'], 'motivo_version': 'Otro intento de versión'}, o['id']).status, 409)
+        self.assertEqual(self.error(obra.subir_legajo, self.admin, {'tipo': 'circular', 'titulo': 'Otra', 'archivo': pdf_de_prueba('x'),
+                                                                     'reemplaza_a': v2['id'], 'motivo_version': 'Tipo distinto'}, o['id']).status, 400)
+
+    def test_no_se_sube_dos_veces_el_mismo_archivo_y_se_valida_el_formato(self):
+        o = self.alta()
+        self.subir(o['id'], 'plano', 'Uno', archivo=pdf_de_prueba('igual'))
+        self.assertEqual(self.error(obra.subir_legajo, self.admin, {'tipo': 'plano', 'titulo': 'Dos', 'archivo': pdf_de_prueba('igual')}, o['id']).status, 409)
+        self.assertEqual(self.error(obra.subir_legajo, self.admin, {'tipo': 'plano', 'titulo': 'Tres', 'archivo': 'data:text/plain;base64,AAAA'}, o['id']).status, 400)
+        self.assertEqual(self.error(obra.subir_legajo, self.admin, {'tipo': 'otra_cosa', 'titulo': 'Cuatro', 'archivo': pdf_de_prueba('c')}, o['id']).status, 400)
+
+    def test_lo_cargado_despues_de_publicar_queda_marcado(self):
+        o = self.alta()
+        self.legajo_completo(o['id'])
+        self.llamar(obra.publicar_legajo, self.admin, None, None, o['id'])
+        c = self.subir(o['id'], 'circular', 'Respuesta')
+        self.assertTrue(c['posterior_publicacion'])
+        _, l = self.llamar(obra.ver_legajo, self.admin, None, None, o['id'])
+        self.assertEqual(sum(1 for d in l['documentos'] if d['posterior_publicacion']), 1)
+
+    def test_el_legajo_no_se_borra_ni_se_edita(self):
+        o = self.alta()
+        d = self.subir(o['id'])
+        for sql in ('DELETE FROM legajo_obra WHERE id=%d', "UPDATE legajo_obra SET titulo='x' WHERE id=%d"):
+            with self.assertRaises(Exception):
+                self.c.execute(sql % d['id'])
+
+    def test_el_legajo_se_ve_segun_la_visibilidad_de_la_obra(self):
+        o = self.alta()
+        self.subir(o['id'])
+        self.assertEqual(self.error(obra.ver_legajo, self.insp, None, o['id']).status, 404)  # inspector sin asignar
+        self.llamar(obra.asignar_obra, self.admin, {'inspector_id': self.insp, 'contratista_id': self.contr}, None, o['id'])
+        for quien in (self.insp, self.contr, self.auth):
+            self.assertEqual(len(self.llamar(obra.ver_legajo, quien, None, None, o['id'])[1]['documentos']), 1)
+
 class LibroDeObra(ObraBase):
     def os(self, asunto='Presentar el plan de trabajos', texto='Se solicita presentar el plan de trabajos actualizado.', uid=None):
         return self.llamar(obra.emitir_os, uid or self.insp, {'asunto': asunto, 'texto': texto}, None, self.oid)[1]
@@ -1402,3 +1567,5 @@ class Autenticacion(ServidorHTTP):
 
 if __name__ == '__main__':
     unittest.main()
+
+

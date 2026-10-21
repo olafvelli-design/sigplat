@@ -215,6 +215,10 @@
   .stepper .n { width:26px; height:26px; border-radius:50%; border:2px solid var(--line); display:inline-flex; align-items:center; justify-content:center; font-size:13px; }
   .stepper li.act { color: var(--navy); } .stepper li.act .n { border-color: var(--acc); color: var(--acc); }
   .stepper li.hecho { color: var(--ok); } .stepper li.hecho .n { background: var(--ok); border-color: var(--ok); color:#fff; }
+  .codigo-obra { margin:4px 0; font-size:15px; color: var(--navy); }
+  .lista-chequeo { list-style:none; padding:0; margin:8px 0; }
+  .lista-chequeo li { padding:2px 0; color: var(--muted); }
+  .lista-chequeo li.ok { color: var(--ok); font-weight:600; }
   .atajos { display:none; }
   @media (min-width: 1180px) {
     .atajos { display:flex; flex-direction:column; gap:4px; position:fixed; right:14px; top:150px; width:190px; background: var(--card); border:1px solid var(--line); border-top:3px solid var(--navy); border-radius:4px; padding:8px; z-index:20; box-shadow:0 2px 10px rgba(0,0,0,.12); }
@@ -1608,12 +1612,14 @@ async function vistaObras() {
   if (S.obra.id) return vistaObra();
   $('#vista').innerHTML = `<section class="card" aria-labelledby="hObras"><h2 id="hObras">Obras</h2>${AVISO_SIM}
     <p class="small">Así trabajaría cada rol con SIGO (contrato y dinero) y SIGUE (campo).</p>
+    ${rolEn('administrativo') ? '<div class="row"><button type="button" class="big" id="obraNueva">+ Nueva obra</button></div>' : ''}
     <ul id="listaObras" class="lista"><li class="small">Cargando…</li></ul></section>`;
   const lista = await api('GET', '/obras');
   $('#listaObras').innerHTML = lista.length ? lista.map(o => {
     const r = o.resumen;
     return `<li><button type="button" class="item" data-obra="${o.id}">
       <span><b>${esc(o.denominacion)}</b></span>
+      <span class="meta"><b>${esc(o.codigo || '')}</b>${o.nro_contratacion ? ' · N° ' + esc(o.nro_contratacion) : ''}</span>
       <span class="meta">${esc(o.contratista)} · ${esc(ESTADO_OBRA[o.estado])}</span>
       <span class="meta">Comprometido a la fecha ${pctTxt(r.avance_ideal_pct)} · Certificado ${pctTxt(r.avance_certificado_pct)} · ${r.vencida ? 'Plazo vencido' : 'Quedan ' + r.dias_restantes + ' días'}</span>
       ${r.mes_a_medir && rolEn('inspector') ? `<span class="meta"><b>Para medir: ${mesTxt(r.mes_a_medir)}</b></span>` : ''}
@@ -1622,13 +1628,14 @@ async function vistaObras() {
       ${rolEn('contratista') && r.os_sin_responder ? `<span class="meta"><b>${r.os_sin_responder} orden(es) de servicio sin responder</b></span>` : ''}
       ${rolEn('inspector') && (r.documentos_por_revisar || r.recepciones_por_revisar) ? `<span class="meta"><b>Para revisar: ${r.documentos_por_revisar} documento(s) y ${r.recepciones_por_revisar} planilla(s) de hormigón</b></span>` : ''}</button></li>`;
   }).join('') : '<li class="vacio">No hay obras asignadas a tu usuario.</li>';
+  if ($('#obraNueva')) $('#obraNueva').onclick = altaObra;
   $('#listaObras').onclick = e => { const b = e.target.closest('[data-obra]'); if (b) { S.obra = { id: +b.dataset.obra, tab: null }; vistaObras(); } };
 }
 
 // Pestañas de una obra, agrupadas según el sistema al que pertenecen en esta simulación
 function gruposObra() {
   return [
-    { grupo: 'SIGO · Contrato y certificación', tabs: [['detalle', 'Detalle de obra'], ['computo', 'Cómputo métrico'], ['certificados', 'Certificados'], ['modificaciones', 'Modificaciones']] },
+    { grupo: 'SIGO · Contrato y certificación', tabs: [['detalle', 'Detalle de obra'], ['legajo', 'Legajo técnico'], ['computo', 'Cómputo métrico'], ['certificados', 'Certificados'], ['modificaciones', 'Modificaciones']] },
     { grupo: 'SIGUE · Campo', tabs: [['libro', 'Libro de obra'], ['documentos', 'Documentación'], ['calidad', 'Calidad']] },
   ];
 }
@@ -1642,6 +1649,7 @@ async function vistaObra() {
   const r = f.resumen;
   $('#vista').innerHTML = `<div class="row"><button type="button" class="sec" id="obraVolver">← Todas las obras</button></div>
     <section class="card"><h2>${esc(f.denominacion)}</h2>${AVISO_SIM}
+      <p class="codigo-obra"><b>${esc(f.codigo || '')}</b>${f.nro_contratacion ? ` · ${esc(f.tipo_contratacion)} N° ${esc(f.nro_contratacion)} · Expte. ${esc(f.expediente)}` : ''}</p>
       <p class="small">${esc(f.contratista)} · Replanteo ${dia(f.fecha_replanteo)} · Plazo ${r.plazo.total_dias} días · Inspector: ${f.inspector ? esc(f.inspector.nombre) : 'sin asignar'}</p>
       <div class="modulos">${grupos.map(g => `<div class="modulo"><div class="tit">${esc(g.grupo)}</div>
         <div class="chips" role="group" aria-label="${esc(g.grupo)}">${g.tabs.map(([k, l]) => `<button type="button" class="chip" data-otab="${k}" aria-pressed="${S.obra.tab === k}">${esc(l)}</button>`).join('')}</div></div>`).join('')}</div>
@@ -1651,13 +1659,13 @@ async function vistaObra() {
       <button type="button" id="atajoGrilla">← Todas las obras</button></nav>`;
   $('#obraVolver').onclick = $('#atajoGrilla').onclick = () => { S.obra = { id: null, tab: null }; vistaObras(); };
   document.querySelectorAll('[data-otab]').forEach(b => { b.onclick = () => { S.obra.tab = b.dataset.otab; vistaObra(); }; });
-  const pintor = { detalle: tabDetalle, computo: tabComputo, certificados: tabCertificados, modificaciones: tabModificaciones, libro: tabLibro,
+  const pintor = { detalle: tabDetalle, computo: tabComputo, certificados: tabCertificados, modificaciones: tabModificaciones, legajo: tabLegajo, libro: tabLibro,
                    documentos: tabDocumentos, calidad: tabCalidad }[S.obra.tab];
   await pintor(f);
 }
 
 // lo que le toca atender a cada rol, con un atajo a la pestaña donde se resuelve
-function pendientesObra(r) {
+function pendientesObra(r, f) {
   const items = [];
   if (rolEn('inspector')) {
     if (r.mes_a_medir) items.push(['computo', `Medir el avance de ${mesTxt(r.mes_a_medir)}`]);
@@ -1666,6 +1674,7 @@ function pendientesObra(r) {
     if (r.recepciones_por_revisar) items.push(['calidad', `${r.recepciones_por_revisar} planilla(s) de hormigón por revisar`]);
   }
   if (rolEn('contratista') && r.os_sin_responder) items.push(['libro', `${r.os_sin_responder} orden(es) de servicio sin responder`]);
+  if (rolEn('administrativo') && f && f.legajo_estado === 'en_armado') items.push(['legajo', 'El legajo está en armado: completarlo y publicarlo']);
   if (rolEn('administrativo') && r.certificados_pendientes) items.push(['certificados', `${r.certificados_pendientes} certificado(s) pendientes: asignar expediente`]);
   if (rolEn('autoridad') && r.certificados_pendientes) items.push(['certificados', `${r.certificados_pendientes} certificado(s) esperan autorización`]);
   if (rolEn('autoridad') && r.modificacion_pendiente) items.push(['modificaciones', 'Una modificación de curva espera autorización']);
@@ -1677,7 +1686,7 @@ async function tabDetalle(f) {
   const r = f.resumen, cv = f.curva, d = cv.desvio, cont = $('#obraCuerpo');
   const fila = (t, v) => `<tr><th scope="row">${esc(t)}</th><td>${v}</td></tr>`;
   const venc = r.vencida ? (r.plazo_cert_vencida_activo ? ' · con plazo de certificación' : ' · sin plazo de certificación') : '';
-  cont.innerHTML = `${pendientesObra(r)}
+  cont.innerHTML = `${pendientesObra(r, f)}
     <div class="det-grid">
       <div>${f.lat !== null && f.lat !== undefined ? '<div id="mapaObra" class="mapa-obra" role="img" aria-label="Mapa con la ubicación de la obra"></div>' : '<p class="small">La obra no tiene ubicación cargada.</p>'}</div>
       <div class="medidores">
@@ -1688,6 +1697,9 @@ async function tabDetalle(f) {
     </div>
     <h3>Plazos y montos</h3>
     <div class="tabla-scroll"><table class="ficha"><tbody>
+      ${fila('Código de obra', `<b>${esc(f.codigo || '—')}</b>`)}
+      ${f.nro_contratacion ? fila('Contratación', `${esc(f.tipo_contratacion)} · N° ${esc(f.nro_contratacion)}<br><span class="small">${esc(f.servicio_administrativo)} · Expediente ${esc(f.expediente)}</span>`) : ''}
+      ${fila('Estado de la obra', esc(ESTADO_OBRA[f.estado]))}
       ${fila('Replanteo', dia(f.fecha_replanteo))}
       ${fila('Plazo', `${r.plazo.original_dias} días${r.plazo.ampliaciones_dias ? ` + ${r.plazo.ampliaciones_dias} de ampliación = <b>${r.plazo.total_dias} días</b>` : ''}`)}
       ${fila('Finalización prevista', dia(r.fecha_fin) + venc)}
@@ -2239,6 +2251,105 @@ async function subirDocumento(f, anterior, recargar) {
   } catch (err) { mensaje($('#docMsg'), err.message, false); }
 }
 
+// ---------- Legajo técnico (SIGO): lo que se publica con la licitación de la obra ----------
+const TIPOS_CONTRATACION_OP = ['Licitación Presencial - O.P.', 'Compulsa Abreviada Presencial - O.P.', 'Directa Presencial Por Monto - O.P.',
+  'Directa Presencial Por Naturaleza - O.P.', 'Subasta Electrónica Inversa - O.P.'];
+const SIGUIENTE_ESTADO = { preadjudicada: ['adjudicada', 'Adjudicar la obra'], adjudicada: ['en_ejecucion', 'Pasar a ejecución'], en_ejecucion: ['finalizada', 'Marcar como finalizada'] };
+
+async function tabLegajo(f) {
+  const cont = $('#obraCuerpo'), admin = rolEn('administrativo');
+  const L = await api('GET', `/obras/${f.id}/legajo`);
+  const sig = SIGUIENTE_ESTADO[f.estado];
+  const doc = d => `<div class="tarjeta"><div class="row"><b>${d.tipo === 'circular' && d.numero ? `Circular N° ${d.numero} · ` : ''}${esc(d.titulo)}</b>
+      <span class="small">v${d.version}${d.vigente ? '' : ' (anterior)'}</span>${d.posterior_publicacion ? etiqueta('Posterior a la publicación', 'aviso') : ''}</div>
+    <div class="small">${d.nombre_archivo ? esc(d.nombre_archivo) + ' · ' : ''}Cargado por ${esc(d.subido_por_nombre)} el ${fmt(d.subido_at)}${d.motivo_version ? '<br>Motivo de la versión: ' + esc(d.motivo_version) : ''}</div>
+    <div class="row"><button type="button" class="sec" data-abrir="${esc(d.url)}">📄 Abrir el archivo</button>
+      ${admin && d.vigente ? `<button type="button" class="sec" data-nueva="${d.id}">Subir versión nueva</button>` : ''}</div></div>`;
+  cont.innerHTML = `<p class="small">El legajo técnico es lo que se publica junto con la licitación: acto administrativo, pliegos, planos, cómputo y presupuesto, y las circulares con consultas y respuestas, que se numeran en orden. Lo arma el administrativo del servicio antes de adjudicar. Nada se borra: una corrección es una versión nueva con su motivo.</p>
+    <div class="tarjeta"><div class="row"><b>${esc(f.codigo || 'Sin código')}</b>${etiqueta(ESTADO_OBRA[f.estado], 'info')}${etiqueta(L.estado === 'publicado' ? 'Legajo publicado' : 'Legajo en armado', L.estado === 'publicado' ? 'ok' : 'aviso')}</div>
+      <div class="small">${L.estado === 'publicado' ? `Publicado por ${esc(L.publicado_por_nombre)} el ${fmt(L.publicado_at)}.` : 'Todavía no se publicó: hasta entonces la obra no se puede adjudicar.'}</div>
+      <ul class="lista-chequeo">${L.requeridos.map(r => `<li class="${r.cumplido ? 'ok' : ''}">${r.cumplido ? '✓' : '○'} ${esc(r.nombre)}</li>`).join('')}</ul>
+      ${admin ? `<div class="row"><button type="button" id="lgSubir">+ Subir documento</button>
+        ${L.estado === 'en_armado' ? `<button type="button" class="sec" id="lgPublicar" ${L.completo ? '' : 'disabled'}>Publicar el legajo</button>` : ''}
+        <button type="button" class="sec" id="lgAsignar">Asignar inspector y contratista</button>
+        ${sig ? `<button type="button" class="sec" id="lgEstado" ${sig[0] === 'adjudicada' && L.estado !== 'publicado' ? 'disabled' : ''}>${esc(sig[1])}</button>` : ''}</div>
+        ${L.estado === 'en_armado' && !L.completo ? '<p class="small">Para publicar hace falta cargar todos los documentos de la lista.</p>' : ''}` : ''}
+      <div id="lgMsg"></div></div>
+    ${Object.entries(L.tipos).map(([t, nombre]) => { const ds = L.documentos.filter(d => d.tipo === t);
+      return ds.length ? `<h3>${esc(nombre)}</h3>${ds.slice().sort((a, b) => b.vigente - a.vigente || a.id - b.id).map(doc).join('')}` : ''; }).join('')}
+    ${L.documentos.length ? '' : '<p class="vacio small">Todavía no hay documentos en el legajo.</p>'}`;
+  const recargar = async txt => { toast(txt); await vistaObra(); };
+  cont.onclick = async e => {
+    const a = e.target.closest('[data-abrir]'), nv = e.target.closest('[data-nueva]');
+    try {
+      if (a) await abrirArchivo(a.dataset.abrir);
+      if (nv) await subirLegajo(f, L, L.documentos.find(d => d.id === +nv.dataset.nueva), recargar);
+    } catch (err) { mensaje($('#lgMsg'), err.message, false); }
+  };
+  if ($('#lgSubir')) $('#lgSubir').onclick = () => subirLegajo(f, L, null, recargar);
+  if ($('#lgPublicar')) $('#lgPublicar').onclick = async () => {
+    const r = await modal({ titulo: 'Publicar el legajo', html: '<p>Con el legajo publicado la obra se puede adjudicar. Después sólo se agregan circulares o versiones nuevas, y quedan marcadas como posteriores a la publicación.</p>',
+      botones: [{ id: 'no', texto: 'Volver', cls: 'sec' }, { id: 'ok', texto: 'Publicar' }] });
+    if (!r || r.id !== 'ok') return;
+    try { await api('POST', `/obras/${f.id}/legajo/publicar`, {}); await recargar('Legajo publicado'); } catch (err) { mensaje($('#lgMsg'), err.message, false); }
+  };
+  if ($('#lgEstado')) $('#lgEstado').onclick = async () => {
+    try { await api('POST', `/obras/${f.id}/estado`, { estado: sig[0] }); await recargar('La obra pasó a ' + ESTADO_OBRA[sig[0]].toLowerCase()); } catch (err) { mensaje($('#lgMsg'), err.message, false); }
+  };
+  if ($('#lgAsignar')) $('#lgAsignar').onclick = async () => {
+    const us = await api('GET', '/usuarios');
+    const opc = (rol, actual) => `<option value="">Sin asignar</option>` + us.filter(u => u.rol === rol).map(u => `<option value="${u.id}" ${actual && actual.id === u.id ? 'selected' : ''}>${esc(u.nombre)}</option>`).join('');
+    const r = await modal({ titulo: 'Asignar a la obra', html: `<label for="aInsp">Inspector</label><select id="aInsp">${opc('inspector', f.inspector)}</select>
+      <label for="aContr">Empresa contratista (usuario)</label><select id="aContr">${opc('contratista', f.representante)}</select>`,
+      botones: [{ id: 'no', texto: 'Volver', cls: 'sec' }, { id: 'ok', texto: 'Guardar', valor: d => ({ inspector_id: +d.querySelector('#aInsp').value || null, contratista_id: +d.querySelector('#aContr').value || null }) }] });
+    if (!r || r.id !== 'ok') return;
+    try { await api('POST', `/obras/${f.id}/asignacion`, r.valor); await recargar('Asignación guardada'); } catch (err) { mensaje($('#lgMsg'), err.message, false); }
+  };
+}
+
+async function subirLegajo(f, L, anterior, recargar) {
+  const r = await modal({
+    titulo: anterior ? `Versión nueva de "${anterior.titulo}"` : 'Subir un documento al legajo',
+    html: `<label for="gTipo">Tipo</label><select id="gTipo" ${anterior ? 'disabled' : ''}>${Object.entries(L.tipos).map(([k, v]) => `<option value="${k}" ${anterior && anterior.tipo === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select>
+      <label for="gTitulo">Título</label><input id="gTitulo" maxlength="120" autocomplete="off" value="${anterior ? esc(anterior.titulo) : ''}">
+      ${anterior ? '<label for="gMotivo">Motivo de la versión nueva</label><input id="gMotivo" maxlength="300" autocomplete="off" placeholder="por ejemplo: se corrigió una cota">' : '<p class="small">Las circulares se numeran solas, en orden.</p>'}
+      <label for="gArch">Archivo (PDF o imagen, hasta 3 MB)</label><input id="gArch" type="file" accept="application/pdf,image/*">
+      <p class="error err-dlg" role="alert"></p>`,
+    botones: [{ id: 'no', texto: 'Volver', cls: 'sec' }, { id: 'ok', texto: 'Subir',
+      valor: d => ({ tipo: d.querySelector('#gTipo').value, titulo: d.querySelector('#gTitulo').value.trim(), motivo: anterior ? d.querySelector('#gMotivo').value.trim() : null, archivo: d.querySelector('#gArch').files[0] }),
+      validar: d => d.querySelector('#gTitulo').value.trim().length < 3 ? 'El título necesita al menos 3 letras.' : !d.querySelector('#gArch').files[0] ? 'Elegí el archivo.'
+        : (anterior && d.querySelector('#gMotivo').value.trim().length < 5) ? 'Escribí el motivo de la versión nueva.' : null }] });
+  if (!r || r.id !== 'ok') return;
+  const v = r.valor;
+  const cuerpo = { tipo: v.tipo, titulo: v.titulo, nombre_archivo: v.archivo.name, archivo: await leerArchivo(v.archivo) };
+  if (anterior) { cuerpo.reemplaza_a = anterior.id; cuerpo.motivo_version = v.motivo; }
+  await api('POST', `/obras/${f.id}/legajo`, cuerpo);
+  await recargar(anterior ? 'Versión nueva subida' : 'Documento subido al legajo');
+}
+
+// Alta de una obra: se genera el código de SIGPLAT y se guardan los números oficiales de la contratación
+async function altaObra() {
+  const tipos = (S.config.obra && S.config.obra.tipos_contratacion) || TIPOS_CONTRATACION_OP;
+  const r = await modal({ titulo: 'Nueva obra', html: `<p class="small">El código de obra se genera solo. Cargá los datos como figuran en el portal de compras.</p>
+    <label for="oDen">Denominación</label><input id="oDen" maxlength="200" autocomplete="off">
+    <label for="oContr">Contratista</label><input id="oContr" maxlength="120" autocomplete="off">
+    <label for="oTipo">Tipo de contratación</label><select id="oTipo">${tipos.map(t => `<option>${esc(t)}</option>`).join('')}</select>
+    <label for="oNro">N° de contratación</label><input id="oNro" autocomplete="off" placeholder="2026/000112 · 06/2025">
+    <label for="oExp">Expediente</label><input id="oExp" autocomplete="off" placeholder="0000-000000/0000">
+    <label for="oServ">Servicio administrativo</label><input id="oServ" maxlength="120" autocomplete="off">
+    <div class="row"><div><label for="oRep">Replanteo previsto</label><input id="oRep" type="date"></div><div><label for="oPlazo">Plazo (días)</label><input id="oPlazo" type="number" min="1" step="1" inputmode="numeric" style="max-width:120px"></div></div>
+    <p class="error err-dlg" role="alert"></p>`,
+    botones: [{ id: 'no', texto: 'Volver', cls: 'sec' }, { id: 'ok', texto: 'Crear la obra', valor: d => ({ denominacion: d.querySelector('#oDen').value.trim(), contratista: d.querySelector('#oContr').value.trim(),
+      tipo_contratacion: d.querySelector('#oTipo').value, nro_contratacion: d.querySelector('#oNro').value.trim(), expediente: d.querySelector('#oExp').value.trim(),
+      servicio_administrativo: d.querySelector('#oServ').value.trim(), fecha_replanteo: d.querySelector('#oRep').value, plazo_dias: +d.querySelector('#oPlazo').value }),
+      validar: d => d.querySelector('#oDen').value.trim().length < 5 ? 'Escribí la denominación de la obra.' : !/^(\d{4}\/\d{6}(\.\d{2})?|\d{1,3}\/\d{4})$/.test(d.querySelector('#oNro').value.trim()) ? 'El número de contratación es como 2026/000112 o 06/2025.'
+        : !/^\d{4}-\d{6}\/\d{4}(\/A\d{1,4})?$/.test(d.querySelector('#oExp').value.trim()) ? 'El expediente es como 0045-012345/2026.' : !d.querySelector('#oRep').value ? 'Elegí la fecha de replanteo prevista.'
+        : !(+d.querySelector('#oPlazo').value >= 1) ? 'Indicá el plazo en días.' : null }] });
+  if (!r || r.id !== 'ok') return;
+  try { const o = await api('POST', '/obras', r.valor); toast('Obra creada: ' + o.codigo); S.obra = { id: o.id, tab: 'legajo' }; await vistaObras(); }
+  catch (err) { toast(err.message); }
+}
+
 // ---------- Calidad: planilla de recepción de hormigón (SIGUE) ----------
 const FLAG_HORMIGON = {
   sin_dosificacion_aprobada: 'No hay una dosificación aprobada de ese tipo de hormigón',
@@ -2326,4 +2437,7 @@ cargarSesion(true).catch(err => { $('#vista').innerHTML = `<div class="msg err">
 </script>
 </body>
 </html>
+
+
+
 

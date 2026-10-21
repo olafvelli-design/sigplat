@@ -27,7 +27,7 @@ Abrir <http://127.0.0.1:8000>. El `seed` recrea `data/sigplat.db` con datos fict
 python -m unittest discover -s tests -v
 ```
 
-125 pruebas: reglas de estado, separación de funciones, evidencias append-only, banderas de consistencia, aislamiento entre entes, permisos por rol, autenticación (contraseña, sesión, bloqueo, revocación), indicadores sin datos inventados, y pruebas HTTP. Usan base y fotos temporales.
+144 pruebas: reglas de estado, separación de funciones, evidencias append-only, banderas de consistencia, aislamiento entre entes, permisos por rol, autenticación (contraseña, sesión, bloqueo, revocación), indicadores sin datos inventados, y pruebas HTTP. Usan base y fotos temporales.
 
 ## Acceso
 
@@ -73,7 +73,7 @@ La pestaña **Obras** simula el trabajo sobre una obra pública (una estación t
 |---|---|---|
 | Inspector | `inspector` | Mide el avance del mes, presenta el cómputo y **emite el certificado** (nace pendiente); emite y cierra órdenes de servicio; revisa documentos y planillas de hormigón |
 | Contratista | `contratista` | Responde las órdenes de servicio; sube documentación; carga planillas de recepción de hormigón |
-| Administrativo | `administrativo` | Asigna el expediente; anula el último pendiente; carga modificaciones de curva ideal y ampliaciones de plazo |
+| Administrativo | `administrativo` | Da de alta la obra (código automático), arma y publica el legajo técnico, asigna responsables; asigna el expediente; anula el último pendiente; carga modificaciones de curva ideal y ampliaciones de plazo |
 | Autoridad | `autoridad` | Autoriza certificados y modificaciones de curva (no puede ser quien los emitió) |
 
 - **SIGO · Contrato y certificación:** detalle de obra (mapa, medidores, plazos y montos, gráfico interactivo de curvas con su desvío, `n` y nota), cómputo métrico por mes (medir, presentar y certificar), certificados con su vista de impresión ("NO AUTORIZADO" mientras estén pendientes).
@@ -141,5 +141,6 @@ Para probarla en local: `python -m http.server 8001` dentro de `docs/` y abrir <
 - **Sin validez legal.** No hay firma digital ni certificación formal.
 - **Concurrencia.** Un solo proceso y una conexión SQLite protegida por un lock. Suficiente para demostración, no para carga municipal.
 - **Pruebas de navegador.** Se verificó a mano el ciclo completo en el navegador: reporte ciudadano, avance y evidencia del responsable, validación del inspector y cierre por la autoridad.
+
 
 

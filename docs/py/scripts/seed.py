@@ -234,8 +234,11 @@ def sembrar_obra(s, simples):
         c, ente, 'Estación transformadora ficticia Las Rosas', 'Constructora Modelo del Centro (ficticia)',
         date(int(m(0)[:4]), int(m(0)[5:7]), 10).strftime('%Y-%m-%d'), 360, items, ideal_de_obra(m(0)),
         contratista_id=simples['contratista'], inspector_id=simples['inspector'], anticipo_pct=10, fondo_reparo_pct=5,
-        fondo_inspeccion_pct=1, plazo_venc_cert_dias=30, lat=-31.4412, lon=-64.2105, usuario_id=simples['autoridad'])
+        fondo_inspeccion_pct=1, plazo_venc_cert_dias=30, lat=-31.4412, lon=-64.2105, usuario_id=simples['autoridad'],
+        ident={'tipo_contratacion': 'Licitación Presencial - O.P.', 'nro_contratacion': '14/2026', 'expediente': '0045-012000/2026',
+               'servicio_administrativo': 'Secretaría de Obras (ficticia)'})
     c.commit()
+    sembrar_legajo(s, simples, oid, m, en)
     ids = {r['nro']: r['id'] for r in c.execute('SELECT id, nro FROM items_obra WHERE obra_id=?', (oid,))}
     ideal = ideal_de_obra(m(0))
     insp, admin, autoridad = simples['inspector'], simples['administrativo'], simples['autoridad']
@@ -273,8 +276,55 @@ def sembrar_obra(s, simples):
     obra.guardar_computo(c, ctx({'items': parcial}, insp), v['id'])
     c.commit()
     sembrar_campo(s, simples, oid, m, en)
+    sembrar_obra_en_armado(s, simples, en(m(4), 8, 9))
     return oid
 
+LEGAJO_BASE = [  # (tipo, título, nombre de archivo)
+    ('acto_administrativo', 'Resolución de aprobación del llamado (ficticia)', 'resolucion-llamado.pdf'),
+    ('acto_administrativo', 'Anexo único de la resolución (ficticio)', 'anexo-unico.pdf'),
+    ('pliego_condiciones', 'Pliego de Condiciones Generales y Particulares (ficticio)', 'pliego-condiciones.pdf'),
+    ('pliego_tecnico', 'Pliego de Especificaciones Técnicas (ficticio)', 'pliego-tecnico.pdf'),
+    ('plano', 'Planos de arquitectura (ficticios)', 'planos-arquitectura.pdf'),
+    ('plano', 'Planos de instalación eléctrica (ficticios)', 'planos-electricos.pdf'),
+    ('computo_presupuesto', 'Cómputo y presupuesto oficial (ficticio)', 'computo-presupuesto.pdf'),
+]
+
+
+def sembrar_legajo(s, simples, oid, m, en):
+    """Legajo técnico de la obra ficticia: lo arma y publica el administrativo antes de adjudicar; después llegan circulares y una versión nueva."""
+    c, admin = s.c, simples['administrativo']
+
+    def sube(hora, cuerpo):
+        core.CLOCK['now'] = hora
+        return obra.subir_legajo(c, ctx(cuerpo, admin), oid)[1]
+
+    for i, (tipo, titulo, nombre) in enumerate(LEGAJO_BASE):
+        sube(en(m(0), 1, 9 + i % 3), {'tipo': tipo, 'titulo': titulo, 'nombre_archivo': nombre, 'archivo': pdf_ficticio(titulo, [f'Obra {oid}'])})
+    core.CLOCK['now'] = en(m(0), 2, 12)
+    obra.publicar_legajo(c, ctx(None, admin), oid)
+    c1 = sube(en(m(0), 3, 9), {'tipo': 'circular', 'titulo': 'Respuesta a consultas de los oferentes (ficticia)', 'nombre_archivo': 'respuesta-consultas.pdf',
+                               'archivo': pdf_ficticio('Respuesta a consultas', ['Circular 1'])})
+    sube(en(m(0), 4, 9), {'tipo': 'circular', 'titulo': 'Segunda respuesta a consultas (ficticia)', 'nombre_archivo': '2-respuesta-consultas.pdf',
+                          'archivo': pdf_ficticio('Segunda respuesta a consultas', ['Circular 2'])})
+    plano = c.execute("SELECT id FROM legajo_obra WHERE obra_id=? AND titulo LIKE 'Planos de arquitectura%'", (oid,)).fetchone()['id']
+    sube(en(m(0), 4, 11), {'tipo': 'plano', 'titulo': 'Planos de arquitectura, rev. 1 (ficticios)', 'nombre_archivo': 'planos-arquitectura-rev1.pdf', 'reemplaza_a': plano,
+                           'motivo_version': 'Se corrigió la cota de la sala de bombas.', 'archivo': pdf_ficticio('Planos de arquitectura rev. 1', [f'Obra {oid}'])})
+    c.commit()
+    return c1
+
+
+def sembrar_obra_en_armado(s, simples, hora):
+    """Una segunda obra recién dada de alta, con el legajo a medio armar: sirve para mostrar el alta y la publicación."""
+    c, admin = s.c, simples['administrativo']
+    core.CLOCK['now'] = hora
+    _, o = obra.alta_obra(c, ctx({'denominacion': 'Refacción ficticia de la escuela Los Aromos', 'contratista': 'Obras del Norte (ficticia)',
+                                  'tipo_contratacion': 'Licitación Presencial - O.P.', 'nro_contratacion': '2026/000312', 'expediente': '0045-013500/2026',
+                                  'servicio_administrativo': 'Secretaría de Obras (ficticia)', 'fecha_replanteo': (hora + timedelta(days=60)).strftime('%Y-%m-%d'),
+                                  'plazo_dias': 180, 'lat': -31.4250, 'lon': -64.1830}, admin))
+    for tipo, titulo, nombre in LEGAJO_BASE[:3]:
+        core.CLOCK['now'] = hora + timedelta(hours=1)
+        obra.subir_legajo(c, ctx({'tipo': tipo, 'titulo': titulo, 'nombre_archivo': nombre, 'archivo': pdf_ficticio(titulo, [f'Obra {o["id"]}', 'En armado'])}, admin), o['id'])
+    c.commit()
 
 def pdf_ficticio(titulo, lineas=()):
     """PDF mínimo y válido con texto inventado, para el legajo de la obra ficticia."""
@@ -499,3 +549,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

@@ -22,6 +22,11 @@ CONFIG_OBRA = {  # valores de EJEMPLO, a validar con un inspector real; se pisan
                  'temp_hormigon_min_c': 5, 'temp_hormigon_max_c': 30},
     'iva_pct': 21,
     'alerta_vencimiento_dias': 30,
+    # tipos de contratación de obra pública, como los lista el portal de compras ("- O.P.")
+    'tipos_contratacion': ['Licitación Presencial - O.P.', 'Compulsa Abreviada Presencial - O.P.', 'Directa Presencial Por Monto - O.P.',
+                           'Directa Presencial Por Naturaleza - O.P.', 'Subasta Electrónica Inversa - O.P.'],
+    'legajo_requeridos': ['acto_administrativo', 'pliego_condiciones', 'pliego_tecnico', 'plano', 'computo_presupuesto'],
+    'sigla_codigo': None,  # por defecto, el primer tramo del código del ente (CBA-PILOTO -> CBA)
 }
 
 
@@ -140,22 +145,147 @@ def _certificado_de(c, computo_id):
     return core.fila(r)
 
 
-# ---------- alta de una obra (seed y pruebas; en la simulación no hay pantalla de alta) ----------
+# ---------- códigos de obra ----------
+# El portal de compras publica las contrataciones con tres numeraciones que no se parecen (2026/000112, 0886-000135/2025, 06/2025)
+# y ninguna dice por sí sola qué obra es. SIGPLAT le da a cada obra un código propio, único y correlativo, y guarda
+# al lado los números oficiales, que son los que se ven en el portal. Formato: OP-<sigla del ente>-<año>-<número>-<dígito>.
+# El dígito final (módulo 11) detecta errores de tipeo: un carácter mal o dos intercambiados.
+
+CODIGO_RE = re.compile(r'^OP-([A-Z]{2,6})-(\d{4})-(\d{4,})-([0-9K])$')
+NRO_CONTRATACION_RE = re.compile(r'^(\d{4}/\d{6}(\.\d{2})?|\d{1,3}/\d{4})$')  # 2026/000112, 2026/000134.01 o 06/2025
+
+
+def digito_codigo(cuerpo):
+    s = ''.join(ch for ch in cuerpo if ch.isalnum())
+    r = sum((i + 1) * (int(ch) if ch.isdigit() else ord(ch) - 55) for i, ch in enumerate(s)) % 11
+    return 'K' if r == 10 else str(r)
+
+
+def sigla_ente(ente):
+    sigla = cfg_obra(ente).get('sigla_codigo') or re.sub(r'[^A-Z]', '', ente['codigo'].split('-')[0].upper())
+    return sigla[:6] or 'OBR'
+
+
+def codigo_valido(codigo):
+    m = CODIGO_RE.match(str(codigo or '').strip().upper())
+    return bool(m) and digito_codigo(codigo.strip().upper().rsplit('-', 1)[0]) == m.group(4)
+
+
+def nuevo_codigo(c, ente):
+    """Siguiente código del ente en el año. Usa una secuencia que sólo sube: un código no se reutiliza."""
+    anio = core.now().year
+    c.execute('INSERT INTO secuencias_obra(ente_id,anio,ultimo) VALUES(?,?,1) ON CONFLICT(ente_id,anio) DO UPDATE SET ultimo=ultimo+1',
+              (ente['id'], anio))
+    n = c.execute('SELECT ultimo FROM secuencias_obra WHERE ente_id=? AND anio=?', (ente['id'], anio)).fetchone()[0]
+    cuerpo = f'OP-{sigla_ente(ente)}-{anio}-{n:04d}'
+    return f'{cuerpo}-{digito_codigo(cuerpo)}'
+
+
+def _identificacion(c, ente, b, excepto=None):
+    """Valida los datos oficiales de la contratación que vienen del portal de compras."""
+    cfg = cfg_obra(ente)
+    tipo = b.get('tipo_contratacion')
+    if tipo not in cfg['tipos_contratacion']:
+        raise ApiError(400, 'tipo_contratacion debe ser uno de: ' + '; '.join(cfg['tipos_contratacion']))
+    nro = (b.get('nro_contratacion') or '').strip()
+    if not NRO_CONTRATACION_RE.match(nro):
+        raise ApiError(400, 'el número de contratación tiene formato AAAA/NNNNNN (2026/000112), AAAA/NNNNNN.NN o NN/AAAA (06/2025)')
+    exp = (b.get('expediente') or '').strip()
+    if not EXPEDIENTE_RE.match(exp):
+        raise ApiError(400, 'el expediente tiene formato 0000-000000/0000, con /A000 si es un anexo')
+    servicio = core.texto(b.get('servicio_administrativo'), 3, 120, 'servicio administrativo')
+    for sql, args, msg in (
+            ('SELECT codigo FROM obras WHERE ente_id=? AND servicio_administrativo=? AND nro_contratacion=?', (ente['id'], servicio, nro),
+             'ese servicio administrativo ya tiene una obra con el número de contratación ' + nro),
+            ('SELECT codigo FROM obras WHERE ente_id=? AND expediente=?', (ente['id'], exp), 'el expediente ' + exp + ' ya pertenece a otra obra')):
+        r = c.execute(sql, args).fetchone()
+        if r and r['codigo'] != excepto:
+            raise ApiError(409, msg + ' (' + str(r['codigo']) + ')')
+    return {'tipo_contratacion': tipo, 'nro_contratacion': nro, 'expediente': exp, 'servicio_administrativo': servicio}
+
+
+def alta_obra(c, ctx):
+    """El administrativo da de alta la obra (preadjudicada). Se genera el código y se arma el legajo antes de adjudicar."""
+    u, ente = core.usuario_actual(c, ctx)
+    core.exigir(u, 'alta_obra')
+    b = ctx['body']
+    ident = _identificacion(c, ente, b)
+    den = core.texto(b.get('denominacion'), 5, 200, 'denominación')
+    contratista = core.texto(b.get('contratista'), 3, 120, 'contratista')
+    replanteo = _fecha_opcional(b.get('fecha_replanteo'), 'fecha_replanteo')
+    if not replanteo:
+        raise ApiError(400, 'falta la fecha de replanteo prevista')
+    plazo = core.numero_opcional(b.get('plazo_dias'), 1, 3650, 'plazo en días')
+    if plazo is None or int(plazo) != plazo:
+        raise ApiError(400, 'el plazo debe ser un número entero de días')
+    lat, lon = core.numero_opcional(b.get('lat'), -90, 90, 'lat'), core.numero_opcional(b.get('lon'), -180, 180, 'lon')
+    if (lat is None) != (lon is None):
+        raise ApiError(400, 'la ubicación necesita latitud y longitud juntas')
+    oid = crear_obra(c, ente['id'], den, contratista, replanteo, int(plazo), [], {}, lat=lat, lon=lon, estado='preadjudicada',
+                     usuario_id=u['id'], ident=ident)
+    return 201, core.fila(c.execute('SELECT * FROM obras WHERE id=?', (oid,)).fetchone())
+
+
+def asignar_obra(c, ctx, oid):
+    """Asigna el inspector y/o la empresa contratista (usuarios del mismo ente) a una obra."""
+    u, ente, obra = _obra_para(c, ctx, 'asignar_obra', oid)
+    b, cambios = ctx['body'], {}
+    for campo, rol in (('inspector_id', 'inspector'), ('contratista_id', 'contratista')):
+        if b.get(campo) is None:
+            continue
+        r = c.execute('SELECT id FROM usuarios WHERE id=? AND ente_id=? AND rol=? AND activo=1', (b[campo], ente['id'], rol)).fetchone()
+        if r is None:
+            raise ApiError(400, f'{campo} debe ser un usuario activo con rol {rol} de este ente')
+        cambios[campo] = r['id']
+    if not cambios:
+        raise ApiError(400, 'indicá inspector_id y/o contratista_id')
+    for campo, valor in cambios.items():
+        c.execute(f'UPDATE obras SET {campo}=? WHERE id=?', (valor, oid))
+    core.audit(c, ente['id'], 'obra', oid, 'asignada', u['id'], cambios)
+    return 200, core.fila(c.execute('SELECT * FROM obras WHERE id=?', (oid,)).fetchone())
+
+
+ORDEN_ESTADOS_OBRA = ['preadjudicada', 'adjudicada', 'en_ejecucion', 'finalizada']
+
+
+def cambiar_estado_obra(c, ctx, oid):
+    """Avanza el estado de la obra de a un paso. Adjudicar exige el legajo publicado; ejecutar, un inspector asignado."""
+    u, ente, obra = _obra_para(c, ctx, 'asignar_obra', oid)
+    nuevo = ctx['body'].get('estado')
+    if nuevo not in ORDEN_ESTADOS_OBRA:
+        raise ApiError(400, 'estado debe ser uno de: ' + ', '.join(ORDEN_ESTADOS_OBRA))
+    if ORDEN_ESTADOS_OBRA.index(nuevo) != ORDEN_ESTADOS_OBRA.index(obra['estado']) + 1:
+        raise ApiError(409, f'la obra está {obra["estado"]}: sólo puede pasar al estado siguiente')
+    if nuevo == 'adjudicada' and obra['legajo_estado'] != 'publicado':
+        raise ApiError(409, 'no se puede adjudicar con el legajo sin publicar')
+    if nuevo == 'en_ejecucion' and not obra['inspector_id']:
+        raise ApiError(409, 'no se puede pasar a ejecución sin inspector asignado')
+    c.execute('UPDATE obras SET estado=? WHERE id=?', (nuevo, oid))
+    core.audit(c, ente['id'], 'obra', oid, 'estado', u['id'], {'de': obra['estado'], 'a': nuevo})
+    return 200, core.fila(c.execute('SELECT * FROM obras WHERE id=?', (oid,)).fetchone())
+
+
+# ---------- alta de una obra con ítems (seed y pruebas) ----------
 
 def crear_obra(c, ente_id, denominacion, contratista, fecha_replanteo, plazo_dias, items, ideal, contratista_id=None,
                inspector_id=None, anticipo_pct=0, fondo_reparo_pct=5, fondo_inspeccion_pct=0, plazo_venc_cert_dias=30,
-               lat=None, lon=None, estado='en_ejecucion', usuario_id=None):
-    """items: [{nro, descripcion, unidad, cantidad, precio_cent, titulo}]; ideal: {nro: {'AAAA-MM': cantidad}}."""
+               lat=None, lon=None, estado='en_ejecucion', usuario_id=None, ident=None):
+    """items: [{nro, descripcion, unidad, cantidad, precio_cent, titulo}]; ideal: {nro: {'AAAA-MM': cantidad}}.
+    ident: {tipo_contratacion, nro_contratacion, expediente, servicio_administrativo}, ya validados. El código se genera acá."""
     parse_fecha(fecha_replanteo, 'fecha_replanteo')
     nros = [i['nro'] for i in items]
     if len(set(nros)) != len(nros):
         raise ApiError(400, 'los números de ítem no pueden repetirse')
+    ident = ident or {}
+    ente = core.fila(c.execute('SELECT * FROM entes WHERE id=?', (ente_id,)).fetchone())
     cur = c.execute(
         '''INSERT INTO obras(ente_id,denominacion,estado,contratista,contratista_id,inspector_id,fecha_replanteo,plazo_dias,
-           anticipo_pct,fondo_reparo_pct,fondo_inspeccion_pct,plazo_venc_cert_dias,lat,lon,curva_cerrada)
-           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)''',
+           anticipo_pct,fondo_reparo_pct,fondo_inspeccion_pct,plazo_venc_cert_dias,lat,lon,curva_cerrada,codigo,tipo_contratacion,
+           nro_contratacion,expediente,servicio_administrativo)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?)''',
         (ente_id, denominacion, estado, contratista, contratista_id, inspector_id, fecha_replanteo, plazo_dias,
-         anticipo_pct, fondo_reparo_pct, fondo_inspeccion_pct, plazo_venc_cert_dias, lat, lon))
+         anticipo_pct, fondo_reparo_pct, fondo_inspeccion_pct, plazo_venc_cert_dias, lat, lon, nuevo_codigo(c, ente),
+         ident.get('tipo_contratacion'), ident.get('nro_contratacion'), ident.get('expediente'), ident.get('servicio_administrativo')))
     oid = cur.lastrowid
     principal = c.execute("INSERT INTO curvas_ideal(obra_id,nombre,tipo,numero,estado,creada_por,creada_at) VALUES(?,?,?,?,?,?,?)",
                           (oid, 'Principal', 'principal', 0, 'autorizada', usuario_id, core.iso(core.now()))).lastrowid
@@ -1175,7 +1305,100 @@ def revisar_recepcion(c, ctx, rid):
     return 200, _rec_dict(c, c.execute('SELECT * FROM recepciones_hormigon WHERE id=?', (rid,)).fetchone())
 
 
+# ---------- legajo técnico de la obra ----------
+# Lo que se publica con una licitación de obra: acto administrativo con sus anexos, pliegos, planos, cómputo y presupuesto, y las
+# circulares (consultas y respuestas, que se numeran en orden). Lo arma el administrativo del servicio antes de adjudicar.
+
+TIPOS_LEGAJO = {
+    'acto_administrativo': 'Acto administrativo y anexos',
+    'pliego_condiciones': 'Pliego de Condiciones Generales y Particulares',
+    'pliego_tecnico': 'Pliego de Especificaciones Técnicas',
+    'plano': 'Planos',
+    'computo_presupuesto': 'Cómputo y presupuesto',
+    'circular': 'Circulares: consultas y respuestas',
+    'otro': 'Otros documentos',
+}
+
+
+def _legajo_dict(c, d, reemplazados):
+    out = dict(d)
+    out['tipo_nombre'] = TIPOS_LEGAJO[d['tipo']]
+    out['url'] = f'/api/fotos/{d["ruta"]}'
+    out['vigente'] = d['id'] not in reemplazados
+    out['subido_por_nombre'] = _nombre(c, d['subido_por'])
+    out['fecha_publicacion'] = d['subido_at'][:10]
+    out['posterior_publicacion'] = bool(d['posterior_publicacion'])
+    return out
+
+
+def ver_legajo(c, ctx, oid):
+    u, ente, obra = _obra_para(c, ctx, oid=oid)
+    filas = [core.fila(r) for r in c.execute('SELECT * FROM legajo_obra WHERE obra_id=? ORDER BY id', (oid,))]
+    reemplazados = {d['reemplaza_a'] for d in filas if d['reemplaza_a']}
+    docs = [_legajo_dict(c, d, reemplazados) for d in filas]
+    vigentes = [d for d in docs if d['vigente']]
+    requeridos = [{'tipo': t, 'nombre': TIPOS_LEGAJO[t], 'cumplido': any(d['tipo'] == t for d in vigentes)} for t in cfg_obra(ente)['legajo_requeridos']]
+    return 200, {'obra_id': oid, 'codigo': obra['codigo'], 'estado': obra['legajo_estado'], 'publicado_at': obra['legajo_publicado_at'],
+                 'publicado_por_nombre': _nombre(c, obra['legajo_publicado_por']), 'requeridos': requeridos,
+                 'completo': all(r['cumplido'] for r in requeridos), 'tipos': TIPOS_LEGAJO, 'documentos': docs}
+
+
+def subir_legajo(c, ctx, oid):
+    """Sube un documento del legajo. Una versión nueva (con su motivo) reemplaza a la anterior sin borrarla; las circulares se numeran solas."""
+    u, ente, obra = _obra_para(c, ctx, 'subir_legajo', oid)
+    b = ctx['body']
+    tipo = b.get('tipo')
+    if tipo not in TIPOS_LEGAJO:
+        raise ApiError(400, 'tipo de documento no válido: ' + ', '.join(TIPOS_LEGAJO))
+    titulo = core.texto(b.get('titulo'), 3, 120, 'título')
+    nombre = ((b.get('nombre_archivo') or '').strip()[:120]) or None
+    version, reemplaza, motivo = 1, b.get('reemplaza_a'), None
+    numero = None
+    if reemplaza is not None:
+        ant = c.execute('SELECT * FROM legajo_obra WHERE id=? AND obra_id=? AND tipo=?', (reemplaza, oid, tipo)).fetchone()
+        if ant is None:
+            raise ApiError(400, 'reemplaza_a debe ser un documento del legajo de esta obra y del mismo tipo')
+        if c.execute('SELECT 1 FROM legajo_obra WHERE reemplaza_a=?', (reemplaza,)).fetchone():
+            raise ApiError(409, 'ese documento ya tiene una versión más nueva')
+        motivo = core.texto(b.get('motivo_version'), 5, 300, 'motivo de la versión nueva')
+        version, numero = ant['version'] + 1, ant['numero']
+    elif tipo == 'circular':
+        numero = (c.execute("SELECT MAX(numero) FROM legajo_obra WHERE obra_id=? AND tipo='circular'", (oid,)).fetchone()[0] or 0) + 1
+    sha, ruta, mime = guardar_archivo(b.get('archivo'))
+    if c.execute('SELECT 1 FROM legajo_obra WHERE obra_id=? AND sha256=?', (oid, sha)).fetchone():
+        raise ApiError(409, 'ese archivo ya está en el legajo de la obra')
+    cur = c.execute(
+        '''INSERT INTO legajo_obra(obra_id,ente_id,tipo,titulo,numero,nombre_archivo,sha256,ruta,mime,version,reemplaza_a,motivo_version,
+           posterior_publicacion,subido_por,subido_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+        (oid, ente['id'], tipo, titulo, numero, nombre, sha, ruta, mime, version, reemplaza, motivo,
+         1 if obra['legajo_estado'] == 'publicado' else 0, u['id'], core.iso(core.now())))
+    core.audit(c, ente['id'], 'legajo', cur.lastrowid, 'subido', u['id'], {'obra': obra['codigo'], 'tipo': tipo, 'version': version})
+    r = core.fila(c.execute('SELECT * FROM legajo_obra WHERE id=?', (cur.lastrowid,)).fetchone())
+    return 201, _legajo_dict(c, r, set())
+
+
+def publicar_legajo(c, ctx, oid):
+    """Publica el legajo: con eso se puede adjudicar. Hacen falta los documentos requeridos; después sólo se agregan circulares o versiones."""
+    u, ente, obra = _obra_para(c, ctx, 'publicar_legajo', oid)
+    if obra['legajo_estado'] == 'publicado':
+        raise ApiError(409, 'el legajo ya está publicado')
+    faltan = [TIPOS_LEGAJO[t] for t in cfg_obra(ente)['legajo_requeridos']
+              if c.execute('SELECT 1 FROM legajo_obra WHERE obra_id=? AND tipo=?', (oid, t)).fetchone() is None]
+    if faltan:
+        raise ApiError(409, 'falta cargar: ' + '; '.join(faltan))
+    c.execute("UPDATE obras SET legajo_estado='publicado', legajo_publicado_por=?, legajo_publicado_at=? WHERE id=?",
+              (u['id'], core.iso(core.now()), oid))
+    core.audit(c, ente['id'], 'obra', oid, 'legajo_publicado', u['id'], {})
+    return ver_legajo(c, ctx, oid)
+
+
 RUTAS = [
+    ('POST', r'^/obras$', alta_obra),
+    ('POST', r'^/obras/(\d+)/asignacion$', asignar_obra),
+    ('POST', r'^/obras/(\d+)/estado$', cambiar_estado_obra),
+    ('GET', r'^/obras/(\d+)/legajo$', ver_legajo),
+    ('POST', r'^/obras/(\d+)/legajo$', subir_legajo),
+    ('POST', r'^/obras/(\d+)/legajo/publicar$', publicar_legajo),
     ('GET', r'^/obras/(\d+)/modificaciones$', listar_modificaciones),
     ('POST', r'^/obras/(\d+)/modificaciones$', cargar_modificacion),
     ('GET', r'^/obras/(\d+)/curva-ideal$', curva_ideal_vigente),
@@ -1208,3 +1431,4 @@ RUTAS = [
     ('POST', r'^/computos/(\d+)/presentar$', presentar_computo),
     ('POST', r'^/computos/(\d+)/eliminar$', eliminar_computo),
 ]
+

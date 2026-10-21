@@ -167,8 +167,49 @@ CREATE TABLE IF NOT EXISTS obras (
     plazo_venc_cert_dias INTEGER NOT NULL DEFAULT 30,
     lat                  REAL,
     lon                  REAL,
-    curva_cerrada        INTEGER NOT NULL DEFAULT 0
+    curva_cerrada        INTEGER NOT NULL DEFAULT 0,
+    -- identificación: el código de SIGPLAT enlaza con los números oficiales de la contratación (ver obra.py, 'códigos de obra')
+    codigo                  TEXT,
+    tipo_contratacion       TEXT,
+    nro_contratacion        TEXT,
+    expediente              TEXT,
+    servicio_administrativo TEXT,
+    legajo_estado           TEXT NOT NULL DEFAULT 'en_armado' CHECK (legajo_estado IN ('en_armado','publicado')),
+    legajo_publicado_por    INTEGER REFERENCES usuarios(id),
+    legajo_publicado_at     TEXT
 );
+CREATE UNIQUE INDEX IF NOT EXISTS obras_codigo ON obras(ente_id, codigo) WHERE codigo IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS obras_contratacion ON obras(ente_id, servicio_administrativo, nro_contratacion) WHERE nro_contratacion IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS obras_expediente ON obras(ente_id, expediente) WHERE expediente IS NOT NULL;
+
+-- Último número de código usado por ente y año: nunca baja, así un código no se reutiliza.
+CREATE TABLE IF NOT EXISTS secuencias_obra (
+    ente_id INTEGER NOT NULL REFERENCES entes(id),
+    anio    INTEGER NOT NULL,
+    ultimo  INTEGER NOT NULL,
+    PRIMARY KEY (ente_id, anio)
+);
+
+-- Legajo técnico de la obra (el de la licitación): documentos por tipo, con versiones. Nada se borra.
+CREATE TABLE IF NOT EXISTS legajo_obra (
+    id                   INTEGER PRIMARY KEY,
+    obra_id              INTEGER NOT NULL REFERENCES obras(id),
+    ente_id              INTEGER NOT NULL REFERENCES entes(id),
+    tipo                 TEXT NOT NULL CHECK (tipo IN ('acto_administrativo','pliego_condiciones','pliego_tecnico','plano','computo_presupuesto','circular','otro')),
+    titulo               TEXT NOT NULL,
+    numero               INTEGER,                      -- correlativo de las circulares (consultas y respuestas)
+    nombre_archivo       TEXT,
+    sha256               TEXT NOT NULL,
+    ruta                 TEXT NOT NULL,
+    mime                 TEXT NOT NULL,
+    version              INTEGER NOT NULL DEFAULT 1,
+    reemplaza_a          INTEGER REFERENCES legajo_obra(id),
+    motivo_version       TEXT,
+    posterior_publicacion INTEGER NOT NULL DEFAULT 0,  -- se cargó después de publicar el legajo
+    subido_por           INTEGER NOT NULL REFERENCES usuarios(id),
+    subido_at            TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS legajo_sin_repetidos ON legajo_obra(obra_id, sha256);
 
 CREATE TABLE IF NOT EXISTS items_obra (
     id                INTEGER PRIMARY KEY,
@@ -356,9 +397,14 @@ CREATE TRIGGER IF NOT EXISTS ordenes_no_delete BEFORE DELETE ON ordenes_servicio
 BEGIN SELECT RAISE(ABORT, 'las órdenes de servicio no se borran'); END;
 CREATE TRIGGER IF NOT EXISTS ordenes_inmutables BEFORE UPDATE OF obra_id, numero, fecha, asunto, texto, emitida_por, emitida_at ON ordenes_servicio
 BEGIN SELECT RAISE(ABORT, 'las órdenes de servicio no se editan'); END;
+CREATE TRIGGER IF NOT EXISTS legajo_no_delete BEFORE DELETE ON legajo_obra
+BEGIN SELECT RAISE(ABORT, 'el legajo no se borra: se reemplaza por una versión nueva'); END;
+CREATE TRIGGER IF NOT EXISTS legajo_inmutable BEFORE UPDATE ON legajo_obra
+BEGIN SELECT RAISE(ABORT, 'los documentos del legajo no se editan'); END;
 CREATE TRIGGER IF NOT EXISTS documentos_no_delete BEFORE DELETE ON documentos_obra
 BEGIN SELECT RAISE(ABORT, 'los documentos no se borran: se reemplazan por una versión nueva'); END;
 CREATE TRIGGER IF NOT EXISTS observaciones_no_delete BEFORE DELETE ON observaciones_documento
 BEGIN SELECT RAISE(ABORT, 'las observaciones no se borran'); END;
 CREATE TRIGGER IF NOT EXISTS recepciones_no_delete BEFORE DELETE ON recepciones_hormigon
 BEGIN SELECT RAISE(ABORT, 'las recepciones no se borran'); END;
+
