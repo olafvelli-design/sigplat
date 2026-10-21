@@ -11,8 +11,7 @@
           --th:#2b7bb9; --thead:#e3eef8; --warn:#8a5a00; --ok:#1e6b38; --on-ok:#fff; --bad:#a51d1d; --foco:#b45309; --suave:rgba(23,105,170,.08); }
   :root[data-theme="dark"] { --fg:#e6e9ee; --muted:#9aa4b2; --line:#2e3642; --bg:#12171e; --card:#1a2029; --acc:#9db4cc; --on-acc:#0b1a2a; --head:#16314f; --navy:#1d3c66;
           --th:#243c58; --thead:#232b36; --warn:#fbbf24; --ok:#4ade80; --on-ok:#06260f; --bad:#f87171; --foco:#fbbf24; --suave:rgba(157,180,204,.12); }
-  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --fg:#e6e9ee; --muted:#9aa4b2; --line:#2e3642; --bg:#12171e; --card:#1a2029; --acc:#9db4cc; --on-acc:#0b1a2a; --head:#16314f; --navy:#1d3c66;
-          --th:#243c58; --thead:#232b36; --warn:#fbbf24; --ok:#4ade80; --on-ok:#06260f; --bad:#f87171; --foco:#fbbf24; --suave:rgba(157,180,204,.12); } }
+  /* siempre claro: el modo oscuro sólo se activa con data-theme="dark" */
   * { box-sizing: border-box; }
   body { margin:0; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--fg); }
   body.sin-scroll { overflow: hidden; }
@@ -2327,3 +2326,4 @@ cargarSesion(true).catch(err => { $('#vista').innerHTML = `<div class="msg err">
 </script>
 </body>
 </html>
+
