@@ -26,7 +26,7 @@ Inspector, responsable de cuadrilla, autoridad, administrador, vecino, contratis
 
 ## Pendiente
 
-- **Etapa 2, no implementado** (decisiones en DECISIONES.md): que el analista emita certificados (hoy emite el inspector); la certificación final del director; propuesta de multas y reclamos del jefe de inspección; redeterminaciones y recepciones de la autoridad; una persona con dos roles.
+- **Etapa 2, no implementado** (decisiones en DECISIONES.md): la certificación final del director; propuesta de multas y reclamos del jefe de inspección; redeterminaciones y recepciones de la autoridad; una persona con dos roles. (Resuelto: emite el inspector, el analista no emite; el jefe de certificaciones aprueba o devuelve.)
 - Etapa 3: rango por usuario, topes de modificación (20 % por ítem, 30 % del total), y parámetros por ente.
 - Pantalla de alta de usuarios y de parámetros para el administrador de sistema.
 - Vista previa del certificado dentro de "Gestionar mes".
