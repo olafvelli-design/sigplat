@@ -2,7 +2,10 @@
   "codigo": "CBA-PILOTO",
   "nombre": "Municipio piloto (Córdoba) - DATOS FICTICIOS",
   "ficticio": true,
-  "centro": [-31.4201, -64.1888],
+  "centro": [
+    -31.4201,
+    -64.1888
+  ],
   "categorias": [
     "Bache",
     "Cordón cuneta roto",
@@ -12,22 +15,62 @@
     "Señalización dañada"
   ],
   "tipos_intervencion": {
-    "mantenimiento": {"etiqueta": "Tarea de mantenimiento", "requiere_actividades": false},
-    "orden_trabajo": {"etiqueta": "Orden de trabajo", "requiere_actividades": true},
-    "obra": {"etiqueta": "Obra pública", "requiere_actividades": true}
+    "mantenimiento": {
+      "etiqueta": "Tarea de mantenimiento",
+      "requiere_actividades": false
+    },
+    "orden_trabajo": {
+      "etiqueta": "Orden de trabajo",
+      "requiere_actividades": true
+    },
+    "obra": {
+      "etiqueta": "Obra pública",
+      "requiere_actividades": true
+    }
   },
-  "duplicados": {"radio_m": 50, "dias": 30},
+  "duplicados": {
+    "radio_m": 50,
+    "dias": 30
+  },
   "radio_evidencia_m": 500,
   "referencia_externa": "SIGO (Provincia de Córdoba): integración NO implementada en el prototipo",
   "obra": {
     "hormigon": {
-      "tipos": ["H13", "H17", "H21", "H25"],
+      "tipos": [
+        "H13",
+        "H17",
+        "H21",
+        "H25"
+      ],
       "asentamiento_tolerancia_cm": 2,
       "temp_hormigon_min_c": 5,
       "temp_hormigon_max_c": 30
     },
     "iva_pct": 21,
     "alerta_vencimiento_dias": 30,
-    "nota": "Umbrales de EJEMPLO para la simulación del Modo obra: validar con un inspector real"
+    "nota": "Umbrales de EJEMPLO para la simulación del Modo obra: validar con un inspector real",
+    "plazos": {
+      "firma_dias": 3,
+      "protesta_dias": 10,
+      "denuncia_demoras_dias": 10,
+      "pago_dias": 30
+    },
+    "fondo_reparo_pct": 5,
+    "topes_modificacion": {
+      "por_item_pct": 20,
+      "total_pct": 30
+    },
+    "cadena_aprobadores": {
+      "certificado": [
+        "inspector",
+        "jefe_certificaciones",
+        "autoridad"
+      ],
+      "modificacion": [
+        "administrativo",
+        "autoridad"
+      ]
+    },
+    "nota_parametros": "EJEMPLO: plazos, topes y cadena a validar con la normativa y personal real"
   }
 }

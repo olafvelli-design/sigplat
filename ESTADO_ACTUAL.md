@@ -23,11 +23,12 @@ Inspector, responsable de cuadrilla, autoridad, administrador, vecino, contratis
 - Después de la etapa 1: 152 pruebas, OK.
 - Después de la etapa 2: 160 pruebas, OK (8 nuevas en `RolesDeObra`).
 - Circuito del certificado (aprobación del jefe y devolución): 165 pruebas, OK (5 nuevas en `CircuitoCertificado`).
+- Etapa 3 (rangos, topes, plazos, parámetros): 172 pruebas, OK (7 nuevas en `TopesYJerarquia`).
 
 ## Pendiente
 
 - **Etapa 2, no implementado** (decisiones en DECISIONES.md): la certificación final del director; propuesta de multas y reclamos del jefe de inspección; redeterminaciones y recepciones de la autoridad; una persona con dos roles. (Resuelto: emite el inspector, el analista no emite; el jefe de certificaciones aprueba o devuelve.)
-- Etapa 3: rango por usuario, topes de modificación (20 % por ítem, 30 % del total), y parámetros por ente.
+- Etapa 3 hecha, con valores de ejemplo a validar: rango por usuario, quién firmó el contrato, topes con acuerdo de la contratista, plazos de firma y protesta, y parámetros por ente (ver DECISIONES.md).
 - Pantalla de alta de usuarios y de parámetros para el administrador de sistema.
 - Vista previa del certificado dentro de "Gestionar mes".
 - Pruebas de usabilidad con usuarios reales: no hechas.

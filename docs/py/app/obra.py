@@ -22,6 +22,11 @@ CONFIG_OBRA = {  # valores de EJEMPLO, a validar con un inspector real; se pisan
                  'temp_hormigon_min_c': 5, 'temp_hormigon_max_c': 30},
     'iva_pct': 21,
     'alerta_vencimiento_dias': 30,
+    # etapa 3: plazos, topes y cadena. Valores de EJEMPLO a validar con la normativa y personal real (ver DECISIONES.md)
+    'plazos': {'firma_dias': 3, 'protesta_dias': 10, 'denuncia_demoras_dias': 10, 'pago_dias': 30},
+    'fondo_reparo_pct': 5,
+    'topes_modificacion': {'por_item_pct': 20, 'total_pct': 30},
+    'cadena_aprobadores': {'certificado': ['inspector', 'jefe_certificaciones', 'autoridad'], 'modificacion': ['administrativo', 'autoridad']},
     # tipos de contratación de obra pública, como los lista el portal de compras ("- O.P.")
     'tipos_contratacion': ['Licitación Presencial - O.P.', 'Compulsa Abreviada Presencial - O.P.', 'Directa Presencial Por Monto - O.P.',
                            'Directa Presencial Por Naturaleza - O.P.', 'Subasta Electrónica Inversa - O.P.'],
@@ -228,7 +233,8 @@ def alta_obra(c, ctx):
     if (lat is None) != (lon is None):
         raise ApiError(400, 'la ubicación necesita latitud y longitud juntas')
     oid = crear_obra(c, ente['id'], den, contratista, replanteo, int(plazo), [], {}, lat=lat, lon=lon, estado='preadjudicada',
-                     usuario_id=u['id'], ident=ident)
+                     usuario_id=u['id'], ident=ident, fondo_reparo_pct=cfg_obra(ente)['fondo_reparo_pct'],
+                     firmante_contrato_id=b.get('firmante_contrato_id'))
     return 201, core.fila(c.execute('SELECT * FROM obras WHERE id=?', (oid,)).fetchone())
 
 
@@ -276,7 +282,7 @@ def cambiar_estado_obra(c, ctx, oid):
 
 def crear_obra(c, ente_id, denominacion, contratista, fecha_replanteo, plazo_dias, items, ideal, contratista_id=None,
                inspector_id=None, anticipo_pct=0, fondo_reparo_pct=5, fondo_inspeccion_pct=0, plazo_venc_cert_dias=30,
-               lat=None, lon=None, estado='en_ejecucion', usuario_id=None, ident=None):
+               lat=None, lon=None, estado='en_ejecucion', usuario_id=None, ident=None, firmante_contrato_id=None):
     """items: [{nro, descripcion, unidad, cantidad, precio_cent, titulo}]; ideal: {nro: {'AAAA-MM': cantidad}}.
     ident: {tipo_contratacion, nro_contratacion, expediente, servicio_administrativo}, ya validados. El código se genera acá."""
     parse_fecha(fecha_replanteo, 'fecha_replanteo')
@@ -294,6 +300,8 @@ def crear_obra(c, ente_id, denominacion, contratista, fecha_replanteo, plazo_dia
          anticipo_pct, fondo_reparo_pct, fondo_inspeccion_pct, plazo_venc_cert_dias, lat, lon, nuevo_codigo(c, ente),
          ident.get('tipo_contratacion'), ident.get('nro_contratacion'), ident.get('expediente'), ident.get('servicio_administrativo')))
     oid = cur.lastrowid
+    if firmante_contrato_id:
+        c.execute('UPDATE obras SET firmante_contrato_id=? WHERE id=?', (firmante_contrato_id, oid))
     principal = c.execute("INSERT INTO curvas_ideal(obra_id,nombre,tipo,numero,estado,creada_por,creada_at) VALUES(?,?,?,?,?,?,?)",
                           (oid, 'Principal', 'principal', 0, 'autorizada', usuario_id, core.iso(core.now()))).lastrowid
     ids = {}
@@ -959,6 +967,24 @@ def cargar_modificacion(c, ctx, oid):
         if sum(_d(v) for v in nuevo.values()) > _d(item['cantidad_oferta']) + Decimal('0.0005'):
             raise ApiError(400, f'el avance ideal del ítem {nro} suma más que la cantidad contratada ({num_txt(item["cantidad_oferta"])})')
         qty[item['id']] = nuevo
+    # topes (etapa 3): cuánto cambia cada ítem y el monto total frente a la curva vigente
+    precios = {i['id']: i['precio_oferta_cent'] for i in items.values()}
+    vig_tot, nue_tot = {}, {}
+    for r in c.execute('SELECT item_id, cantidad FROM avance_ideal WHERE curva_id=?', (vigente['id'],)):
+        vig_tot[r['item_id']] = vig_tot.get(r['item_id'], 0) + _d(r['cantidad'])
+    for iid, meses in qty.items():
+        nue_tot[iid] = sum((_d(v) for v in meses.values()), Decimal(0))
+    tope = cfg_obra(ente)['topes_modificacion']
+    desvio_item, delta = 0.0, 0
+    for it in items.values():
+        a, b2, of = vig_tot.get(it['id'], Decimal(0)), nue_tot.get(it['id'], Decimal(0)), _d(it['cantidad_oferta'])
+        if of:
+            desvio_item = max(desvio_item, float(abs(b2 - a) / of * 100))
+        delta += importe(b2, it['precio_oferta_cent']) - importe(a, it['precio_oferta_cent'])
+    monto = monto_contrato_cent(list(items.values()))
+    total_pct = float(abs(_d(delta)) * 100 / _d(monto)) if monto else 0.0
+    excede = int(tipo == 'MCI' and (desvio_item > tope['por_item_pct'] or total_pct > tope['total_pct']))
+    delta = delta if tipo == 'MCI' else 0
     n = c.execute('SELECT COUNT(*) FROM curvas_ideal WHERE obra_id=? AND tipo=?', (oid, tipo)).fetchone()[0] + 1
     nombre = f'MCI-{n}' if tipo == 'MCI' else f'AmpP-{n}'
     estado = 'pendiente' if tipo == 'MCI' else 'autorizada'
@@ -970,6 +996,7 @@ def cargar_modificacion(c, ctx, oid):
     for item_id, meses in qty.items():
         for mes, cantidad in meses.items():
             c.execute('INSERT INTO avance_ideal(curva_id,item_id,mes,cantidad) VALUES(?,?,?,?)', (cur.lastrowid, item_id, mes, cantidad))
+    c.execute('UPDATE curvas_ideal SET excede_tope=?, delta_monto_cent=? WHERE id=?', (excede, delta, cur.lastrowid))
     if tipo == 'AP':
         c.execute('UPDATE obras SET plazo_dias=plazo_dias+? WHERE id=?', (dias, oid))
     core.audit(c, ente['id'], 'obra', oid, 'modificacion_cargada', u['id'], {'curva': nombre, 'tramite': tramite, 'dias': dias})
@@ -994,6 +1021,14 @@ def autorizar_modificacion(c, ctx, cid):
         raise ApiError(409, 'la modificación ya está autorizada')
     if cv['creada_por'] == u['id']:
         raise ApiError(403, 'quien carga una modificación no puede autorizarla')
+    if cv['excede_tope'] and _firma_de(c, 'curva', cid, 'contratista') != 'firmado':
+        raise ApiError(409, 'la modificación supera el tope por ítem o total: hace falta el acuerdo registrado del contratista')
+    if cv['delta_monto_cent']:
+        if not obra['firmante_contrato_id']:
+            raise ApiError(409, 'la obra no tiene registrado quién firmó el contrato: no se puede autorizar una modificación que cambia el monto')
+        rango_firmante = c.execute('SELECT rango FROM usuarios WHERE id=?', (obra['firmante_contrato_id'],)).fetchone()['rango']
+        if u['rango'] < rango_firmante:
+            raise ApiError(403, f'una modificación que cambia el monto la autoriza alguien de rango igual o mayor que quien firmó el contrato (rango {rango_firmante})')
     c.execute("UPDATE curvas_ideal SET estado='autorizada', autorizada_por=?, autorizada_at=? WHERE id=?", (u['id'], core.iso(core.now()), cid))
     core.audit(c, ente['id'], 'obra', obra['id'], 'modificacion_autorizada', u['id'], {'curva': cv['nombre']})
     return 200, _mod_dict(c, c.execute('SELECT * FROM curvas_ideal WHERE id=?', (cid,)).fetchone(), _curva_vigente(c, obra['id'])['id'])
@@ -1481,7 +1516,7 @@ def _firmable(c, ctx, entidad, eid, permiso):
     """Devuelve (usuario, ente, obra, fila) del cómputo o certificado si la persona puede verlo."""
     u, ente = core.usuario_actual(c, ctx)
     core.exigir(u, permiso)
-    tabla = 'computos' if entidad == 'computo' else 'certificados'
+    tabla = {'computo': 'computos', 'certificado': 'certificados', 'curva': 'curvas_ideal'}[entidad]
     r = c.execute(f'SELECT * FROM {tabla} WHERE id=?', (eid,)).fetchone()
     if r is None:
         raise ApiError(404, 'inexistente')
@@ -1498,9 +1533,17 @@ def firmar_contratista(c, ctx, entidad, eid):
         raise ApiError(409, 'sólo se firma una medición presentada')
     if entidad == 'certificado' and fila['estado'] == 'anulado':
         raise ApiError(409, 'no se firma un certificado anulado')
+    if entidad == 'curva' and (fila['estado'] != 'pendiente' or not fila['excede_tope']):
+        raise ApiError(409, 'sólo hace falta el acuerdo de la contratista en una modificación pendiente que supera el tope')
     accion = ctx['body'].get('accion')
     if accion not in ('firma', 'rechazo'):
         raise ApiError(400, 'accion debe ser firma o rechazo')
+    # plazos del acto (configurables por ente): firmar dentro del plazo de firma; rechazar dentro del plazo de protesta
+    ref = {'computo': 'presentado_at', 'certificado': 'emitido_at', 'curva': 'creada_at'}[entidad]
+    transcurridos = (hoy() - parse_fecha(fila[ref][:10], ref)).days
+    limite = cfg_obra(ente)['plazos']['firma_dias' if accion == 'firma' else 'protesta_dias']
+    if transcurridos > limite:
+        raise ApiError(409, f'plazo vencido: la {"firma" if accion == "firma" else "protesta"} tenía {limite} días desde el acto y pasaron {transcurridos}')
     motivo = None
     if accion == 'rechazo':
         motivo = core.texto(ctx['body'].get('motivo'), 10, 500, 'motivo del rechazo')
@@ -1527,6 +1570,9 @@ def firmas_contratista(c, ctx, oid):
         out.append({'entidad': 'computo', 'id': k['id'], 'titulo': f'Medición de {mes_txt(k["mes"])}', 'firmado': _firma_de(c, 'computo', k['id'], 'contratista')})
     for ce in c.execute("SELECT * FROM certificados WHERE obra_id=? AND estado!='anulado' ORDER BY numero", (oid,)):
         out.append({'entidad': 'certificado', 'id': ce['id'], 'titulo': f'Certificado N° {ce["numero"]}', 'firmado': _firma_de(c, 'certificado', ce['id'], 'contratista')})
+    for cv in c.execute("SELECT * FROM curvas_ideal WHERE obra_id=? AND tipo='MCI' AND estado='pendiente' AND excede_tope=1 ORDER BY id", (oid,)):
+        out.append({'entidad': 'curva', 'id': cv['id'], 'titulo': f'Acuerdo de la modificación {cv["nombre"]} (supera el tope)',
+                    'firmado': _firma_de(c, 'curva', cv['id'], 'contratista')})
     return 200, out
 
 
@@ -1540,6 +1586,17 @@ def validar_medicion(c, ctx, kid):
     _registrar_firma(c, ente['id'], 'computo', kid, 'validada', u)
     core.audit(c, ente['id'], 'computo', kid, 'validada', u['id'], {'mes': k['mes']})
     return 200, {'id': kid, 'validada_por': u['nombre']}
+
+
+def firmar_modificacion_contratista(c, ctx, cid):
+    return firmar_contratista(c, ctx, 'curva', cid)
+
+
+def ver_parametros(c, ctx):
+    """Parámetros del ente (plazos, topes, cadena y fondo de reparo). Son de ejemplo hasta validarlos con la normativa."""
+    u, ente = core.usuario_actual(c, ctx)
+    core.exigir(u, 'ver_obras')
+    return 200, cfg_obra(ente)
 
 
 def mes_txt(m):
@@ -1638,6 +1695,8 @@ def publicar_legajo(c, ctx, oid):
 
 
 RUTAS = [
+    ('GET', r'^/parametros$', ver_parametros),
+    ('POST', r'^/modificaciones/(\d+)/firma-contratista$', firmar_modificacion_contratista),
     ('POST', r'^/certificados/(\d+)/aprobar$', aprobar_certificado),
     ('POST', r'^/certificados/(\d+)/devolver$', devolver_certificado),
     ('POST', r'^/obras/(\d+)/equipo$', asignar_equipo),

@@ -46,3 +46,14 @@ Registro de decisiones tomadas y de las que quedan a confirmar. Las confirmadas 
 2. **Notas de pedido: tipos y efectos.** Hoy la nota sólo registra el pedido y la respuesta. No cambia plazos ni montos. Falta definir si una ampliación aceptada debe pasar a ser una modificación de curva ideal (MCI/AP) y quién lo decide. Requiere validación institucional.
 3. **Quién firma cada acto y con qué rango.** El pedido propone roles nuevos (representante técnico, jefe de inspección, analista y jefe de certificaciones, director, auditor) y un campo de rango por usuario. Eso es la etapa 2 y 3, y los nombres de cargos, los rangos y la cadena de aprobadores deben validarse con la normativa de Córdoba y con personal real. No se inventan aquí.
 4. **Parámetros por ente** (plazo de firma del certificado, protesta, denuncia de demoras, pago, fondo de reparo). Hoy hay valores de ejemplo. Se pasan a `config/entes/*.json` en la etapa 3.
+
+## Etapa 3 (implementada, valores de ejemplo a validar)
+
+- **Rango por usuario** (1 a 5, 5 el más alto). Lo fija el administrador de sistema. Ejemplo en el seed: autoridad 3, director 4.
+- **Quién firmó el contrato**: la obra guarda `firmante_contrato_id`. Una modificación que cambia el monto total del contrato sólo la autoriza alguien de rango igual o mayor que ese firmante. Si la obra no tiene firmante registrado, no se puede autorizar ese cambio. La referencia al art. 40 de la Ley 8614 es la que indicaste; **no la verifiqué**.
+- **Qué cuenta como "cambia el monto"**: la diferencia de importe entre la curva vigente y la propuesta, sumada por ítem. Una modificación que sólo mueve el avance entre meses no cambia el monto.
+- **Topes**: se miden sobre el total de cada ítem frente a su cantidad contratada (20 %) y sobre el monto total del contrato (30 %). Una modificación que los supera queda marcada y no se puede autorizar sin el acuerdo registrado de la contratista (firma sobre la modificación en el libro de obra). Esta forma de medir es mía; hay que confirmarla.
+- **Plazos de firma**: la contratista firma una medición o un certificado dentro de 3 días desde el acto, y rechaza dentro de 10 días desde el acto (valores de ejemplo). Pasado el plazo, la firma se rechaza. El plazo de protesta usa los 10 días; la denuncia de demoras (10) y el pago (30 o 60) quedan configurados, pero no hay pantalla que los use todavía.
+- **Parámetros por ente**: en `config/entes/*.json`, sección `obra`. El endpoint `GET /parametros` los muestra.
+- **Cadena de aprobadores**: queda configurada, pero es informativa; la cadena real sigue fija en el código. Cambiarla desde el JSON no cambia el circuito todavía.
+

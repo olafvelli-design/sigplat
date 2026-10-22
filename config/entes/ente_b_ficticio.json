@@ -2,7 +2,10 @@
   "codigo": "ENTE-B",
   "nombre": "Ente ficticio B (interior) - DATOS FICTICIOS",
   "ficticio": true,
-  "centro": [-32.4080, -63.2440],
+  "centro": [
+    -32.408,
+    -63.244
+  ],
   "categorias": [
     "Pozo o hundimiento",
     "Veredas rotas",
@@ -10,10 +13,44 @@
     "Alcantarilla obstruida"
   ],
   "tipos_intervencion": {
-    "mantenimiento": {"etiqueta": "Mantenimiento", "requiere_actividades": false},
-    "obra": {"etiqueta": "Obra", "requiere_actividades": true}
+    "mantenimiento": {
+      "etiqueta": "Mantenimiento",
+      "requiere_actividades": false
+    },
+    "obra": {
+      "etiqueta": "Obra",
+      "requiere_actividades": true
+    }
   },
-  "duplicados": {"radio_m": 80, "dias": 60},
+  "duplicados": {
+    "radio_m": 80,
+    "dias": 60
+  },
   "radio_evidencia_m": 800,
-  "referencia_externa": null
+  "referencia_externa": null,
+  "obra": {
+    "plazos": {
+      "firma_dias": 3,
+      "protesta_dias": 10,
+      "denuncia_demoras_dias": 10,
+      "pago_dias": 30
+    },
+    "fondo_reparo_pct": 5,
+    "topes_modificacion": {
+      "por_item_pct": 20,
+      "total_pct": 30
+    },
+    "cadena_aprobadores": {
+      "certificado": [
+        "inspector",
+        "jefe_certificaciones",
+        "autoridad"
+      ],
+      "modificacion": [
+        "administrativo",
+        "autoridad"
+      ]
+    },
+    "nota_parametros": "EJEMPLO: plazos, topes y cadena a validar con la normativa y personal real"
+  }
 }

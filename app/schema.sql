@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS usuarios (
     password_hash TEXT NOT NULL,
     rol           TEXT NOT NULL CHECK (rol IN ('inspector','responsable','autoridad','administrador','vecino','contratista','administrativo',
                                               'jefe_inspeccion','analista_certificaciones','jefe_certificaciones','director','auditor')),
-    activo        INTEGER NOT NULL DEFAULT 1
+    activo        INTEGER NOT NULL DEFAULT 1,
+    rango         INTEGER NOT NULL DEFAULT 1 CHECK (rango BETWEEN 1 AND 5)  -- orden de jerarquía para autorizar (etapa 3)
 );
 
 -- Sesiones: sólo se guarda el hash del token. Se revocan, no se borran.
@@ -169,6 +170,7 @@ CREATE TABLE IF NOT EXISTS obras (
     lat                  REAL,
     lon                  REAL,
     curva_cerrada        INTEGER NOT NULL DEFAULT 0,
+    firmante_contrato_id INTEGER REFERENCES usuarios(id),  -- quien firmó el contrato: su rango limita quién autoriza cambios de monto
     -- identificación: el código de SIGPLAT enlaza con los números oficiales de la contratación (ver obra.py, 'códigos de obra')
     codigo                  TEXT,
     tipo_contratacion       TEXT,
@@ -241,6 +243,8 @@ CREATE TABLE IF NOT EXISTS curvas_ideal (
     creada_at      TEXT NOT NULL,
     autorizada_por INTEGER REFERENCES usuarios(id),
     autorizada_at  TEXT,
+    excede_tope      INTEGER NOT NULL DEFAULT 0,  -- supera el tope por ítem o total: requiere acuerdo registrado del contratista
+    delta_monto_cent INTEGER NOT NULL DEFAULT 0,  -- cambio del monto total del contrato que produce la modificación
     UNIQUE (obra_id, nombre)
 );
 
@@ -432,7 +436,7 @@ CREATE TABLE IF NOT EXISTS obra_asignados (
 CREATE TABLE IF NOT EXISTS firmas_registro (
     id          INTEGER PRIMARY KEY,
     ente_id     INTEGER NOT NULL REFERENCES entes(id),
-    entidad     TEXT NOT NULL CHECK (entidad IN ('certificado','nota_pedido','orden_servicio','computo')),
+    entidad     TEXT NOT NULL CHECK (entidad IN ('certificado','nota_pedido','orden_servicio','computo','curva')),
     entidad_id  INTEGER NOT NULL,
     accion      TEXT NOT NULL,
     usuario_id  INTEGER NOT NULL REFERENCES usuarios(id),

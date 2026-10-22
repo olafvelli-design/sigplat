@@ -239,7 +239,7 @@ def sembrar_obra(s, simples):
     oid = obra.crear_obra(
         c, ente, 'Estación transformadora ficticia Las Rosas', 'Constructora Modelo del Centro (ficticia)',
         date(int(m(0)[:4]), int(m(0)[5:7]), 10).strftime('%Y-%m-%d'), 360, items, ideal_de_obra(m(0)),
-        contratista_id=simples['contratista'], inspector_id=simples['inspector'], anticipo_pct=10, fondo_reparo_pct=5,
+        contratista_id=simples['contratista'], inspector_id=simples['inspector'], firmante_contrato_id=simples['autoridad'], anticipo_pct=10, fondo_reparo_pct=5,
         fondo_inspeccion_pct=1, plazo_venc_cert_dias=30, lat=-31.4412, lon=-64.2105, usuario_id=simples['autoridad'],
         ident={'tipo_contratacion': 'Licitación Presencial - O.P.', 'nro_contratacion': '14/2026', 'expediente': '0045-012000/2026',
                'servicio_administrativo': 'Secretaría de Obras (ficticia)'})
@@ -474,6 +474,8 @@ def construir(ruta, inicio):
     ente_cba = c.execute("SELECT id FROM entes WHERE codigo='CBA-PILOTO'").fetchone()['id']
     simples = {rol: core.crear_usuario(c, ente_cba, nombre, login_nombre, login_nombre, rol)
                for login_nombre, nombre, rol in USUARIOS_SIMPLES}
+    for rol_r, rango in {'autoridad': 3, 'director': 4, 'jefe_certificaciones': 2, 'administrativo': 2, 'administrador': 2}.items():  # jerarquía (etapa 3)
+        c.execute('UPDATE usuarios SET rango=? WHERE id=?', (rango, simples[rol_r]))
     c.commit()
     s.avanzar(dias=5)
     confirmadas_cba = confirmadas_cba[:8]

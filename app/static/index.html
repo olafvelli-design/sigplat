@@ -2154,6 +2154,8 @@ async function tabModificaciones(f) {
     ${d.modificaciones.length ? d.modificaciones.map(m => `<div class="tarjeta"><div class="row"><b>${esc(m.nombre)}</b><span class="small">${TIPO_MOD[m.tipo]}</span>
       ${etiqueta(m.estado === 'pendiente' ? 'Pendiente de autorización' : 'Autorizada', m.estado === 'pendiente' ? 'aviso' : 'ok')}${m.vigente ? etiqueta('Vigente', 'info') : ''}</div>
       <div class="small">Trámite ${esc(m.tramite)} · ${esc(m.instrumento)}${m.dias ? ` · +${m.dias} días` : ''}<br>Cargada por ${esc(m.creada_por_nombre)} el ${fmt(m.creada_at)}${m.autorizada_por_nombre && m.estado === 'autorizada' && m.tipo === 'MCI' ? ` · Autorizada por ${esc(m.autorizada_por_nombre)} el ${fmt(m.autorizada_at)}` : ''}${m.observaciones ? '<br>' + esc(m.observaciones) : ''}</div>
+      ${m.excede_tope ? '<div class="msg aviso" role="note">Supera el tope de modificación (20 % por ítem o 30 % del total): no se puede autorizar sin el acuerdo registrado de la contratista.</div>' : ''}
+      ${m.delta_monto_cent ? `<div class="small">Cambia el monto del contrato en ${pesos(m.delta_monto_cent)}: la autoriza alguien de rango igual o mayor que quien firmó el contrato.</div>` : ''}
       ${rol === 'autoridad' && m.estado === 'pendiente' ? `<div class="row"><button type="button" data-aut="${m.id}">Autorizar</button></div>` : ''}</div>`).join('') : '<p class="vacio small">La obra no tiene modificaciones: rige la curva Principal.</p>'}`;
   cont.onclick = async e => {
     const b = e.target.closest('[data-aut]');
@@ -2307,7 +2309,7 @@ async function tabLibro(f) {
           motivo = await pedirTexto({ titulo: 'Rechazar', etiqueta: 'Motivo del rechazo (queda registrado)', minimo: 10, boton: 'Rechazar' });
           if (!motivo) return;
         }
-        await api('POST', `/${entidad === 'computo' ? 'computos' : 'certificados'}/${id}/firma-contratista`, { accion: accion === 'firma' ? 'firma' : 'rechazo', motivo });
+        await api('POST', `/${{ computo: 'computos', certificado: 'certificados', curva: 'modificaciones' }[entidad]}/${id}/firma-contratista`, { accion: accion === 'firma' ? 'firma' : 'rechazo', motivo });
         await terminar(accion === 'firma' ? 'Firma registrada' : 'Rechazo registrado');
       } catch (err) { mensaje($('#osMsg'), err.message, false); }
     });

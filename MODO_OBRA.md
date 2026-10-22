@@ -27,7 +27,7 @@ El reparto SIGO/SIGUE es una hipótesis tomada del video y de lo indicado por el
 | Contratista | Ve sólo su obra, sus notas de pedido y sus órdenes de servicio. Solicita notas de pedido, responde órdenes de servicio, sube documentación y carga planillas de hormigón (pendiente de decisión: ver DECISIONES.md) |
 | Administrativo | **Da de alta la obra** (se genera el código), arma y publica el **legajo técnico**, asigna inspector y contratista y avanza el estado; asigna el expediente de los certificados; anula el último pendiente; carga modificaciones de curva ideal y ampliaciones de plazo; registra el plazo de certificación de obra vencida |
 | Autoridad | Autoriza el certificado y las modificaciones de curva ideal (quien emite o carga no autoriza) |
-| Administrador | Consulta sin operar. Da de alta usuarios (administrador de sistema); no firma actos |
+| Administrador | Consulta sin operar. Asigna rangos al dar de alta usuarios. Da de alta usuarios (administrador de sistema); no firma actos |
 | Jefe de inspección | Valida mediciones presentadas. Sólo en las obras que le asignan |
 | Analista y jefe de certificaciones | Pendiente de definir el circuito (ver DECISIONES.md). Sólo en las obras asignadas |
 | Director | Pendiente de definir la certificación final. Sólo en las obras asignadas |

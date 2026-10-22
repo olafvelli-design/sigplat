@@ -55,3 +55,17 @@
 
 **Sin implementar**: la certificación final del director, las multas y reclamos del jefe de inspección, las redeterminaciones y recepciones, y dos roles por persona.
 
+## Etapa 3 · Rangos, topes, plazos y parámetros
+**Cambió**
+- `schema.sql`: `usuarios.rango` (1 a 5); `obras.firmante_contrato_id`; `curvas_ideal.excede_tope` y `delta_monto_cent`; firmas admiten `curva`.
+- `core.py`: el alta de usuarios acepta `rango`.
+- `obra.py`: parámetros por defecto en `CONFIG_OBRA` (plazos, topes, cadena, fondo de reparo); al cargar una MCI se calculan los topes y el cambio de monto; autorizar exige el acuerdo de la contratista si se supera el tope, y el rango del firmante si cambia el monto; la contratista firma o rechaza una modificación que supera el tope; los plazos de firma y de protesta se controlan; `GET /parametros`.
+- `config/entes/*.json`: sección `obra` con plazos, topes, cadena y fondo de reparo (EJEMPLO).
+- `seed.py`: rangos y firmante del contrato en la obra de ejemplo.
+- `index.html`: aviso de tope y de cambio de monto en cada modificación; la contratista firma las modificaciones que superan el tope desde el libro de obra.
+- Tests: 7 nuevas en `TopesYJerarquia`.
+
+**Resultado**: **172 OK**. Probado en el navegador: la contratista lee los parámetros del ente.
+
+**Limitaciones**: la cadena de aprobadores es informativa; la denuncia de demoras y el pago no tienen pantalla; los plazos de firma se miden desde el acto y en la demo algunos actos antiguos ya están vencidos.
+

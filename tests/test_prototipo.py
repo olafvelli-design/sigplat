@@ -1416,6 +1416,73 @@ class CircuitoCertificado(ObraBase):
         self.assertEqual(self.error(obra.devolver_certificado, self.jefe_cert, {'motivo': 'Motivo suficiente de prueba'}, cert['id']).status, 409)
 
 
+class TopesYJerarquia(ObraBase):
+    """Etapa 3: topes de modificación con acuerdo del contratista, rango de quien autoriza cambios de monto, plazos de firma y parámetros del ente."""
+    def setUp(self):
+        super().setUp()
+        self.director = self.usuario(self.cba, 'Director T', 'director')
+        self.c.execute('UPDATE usuarios SET rango=4 WHERE id=?', (self.director,))
+        self.c.execute('UPDATE obras SET firmante_contrato_id=? WHERE id=?', (self.director, self.oid))
+        self.c.commit()
+
+    def mci(self, ideal):
+        return self.llamar(obra.cargar_modificacion, self.admin, {'tipo': 'MCI', 'tramite': 'EXP-PRUEBA-01', 'instrumento': 'Acta Acuerdo N° 1', 'ideal': ideal}, None, self.oid)[1]
+
+    def test_mover_avance_sin_cambiar_el_total_no_supera_topes_ni_cambia_el_monto(self):
+        m = self.mci({2: {self.m0: 30, self.m1: 40, self.m2: 30}})  # mismo total (100)
+        self.assertEqual((m['excede_tope'], m['delta_monto_cent']), (0, 0))
+        self.assertEqual(self.llamar(obra.autorizar_modificacion, self.auth, None, None, m['id'])[1]['estado'], 'autorizada')
+
+    def test_supera_el_tope_por_item_hasta_que_el_contratista_lo_acuerda(self):
+        m = self.mci({2: {self.m0: 20, self.m1: 40}})  # el ítem 2 baja de 100 a 60: 40 % de la oferta
+        self.assertEqual(m['excede_tope'], 1)
+        self.assertEqual(self.error(obra.autorizar_modificacion, self.auth, None, m['id']).status, 409)
+        self.llamar(obra.firmar_modificacion_contratista, self.contr, {'accion': 'firma'}, None, m['id'])
+        self.assertEqual(self.error(obra.autorizar_modificacion, self.auth, None, m['id']).status, 403)  # cambia el monto: rango insuficiente
+        self.c.execute('UPDATE usuarios SET rango=4 WHERE id=?', (self.auth,))
+        self.c.commit()
+        self.assertEqual(self.llamar(obra.autorizar_modificacion, self.auth, None, None, m['id'])[1]['estado'], 'autorizada')
+
+    def test_el_acuerdo_de_la_contratista_solo_hace_falta_si_supera_el_tope(self):
+        m = self.mci({2: {self.m0: 30, self.m1: 40, self.m2: 30}})
+        self.assertEqual(self.error(obra.firmar_modificacion_contratista, self.contr, {'accion': 'firma'}, m['id']).status, 409)
+
+    def test_quien_cambia_el_monto_lo_autoriza_alguien_de_rango_igual_o_mayor_que_quien_firmo_el_contrato(self):
+        m = self.mci({2: {self.m0: 60}})  # reduce el total del ítem 2 (cambia el monto) sin superar el 20 % por mes
+        self.assertTrue(m['delta_monto_cent'])
+        self.c.execute('UPDATE usuarios SET rango=1 WHERE id=?', (self.auth,))
+        self.c.execute("UPDATE curvas_ideal SET excede_tope=0 WHERE id=?", (m['id'],))
+        self.c.commit()
+        self.assertEqual(self.error(obra.autorizar_modificacion, self.auth, None, m['id']).status, 403)
+        self.c.execute('UPDATE usuarios SET rango=4 WHERE id=?', (self.auth,))
+        self.c.commit()
+        self.assertEqual(self.llamar(obra.autorizar_modificacion, self.auth, None, None, m['id'])[1]['estado'], 'autorizada')
+
+    def test_la_contratista_firma_dentro_del_plazo_y_protesta_en_el_suyo(self):
+        k = self.computo(); self.guardar(k['id'], c2=5); self.presentar(k['id'])
+        self.c.execute("UPDATE computos SET presentado_at='2000-01-01T00:00:00Z' WHERE id=?", (k['id'],))
+        self.c.commit()
+        self.assertEqual(self.error(obra.firmar_medicion_contratista, self.contr, {'accion': 'firma'}, k['id']).status, 409)  # más de 3 días
+        self.c.execute("UPDATE computos SET presentado_at=? WHERE id=?", (obra.core.iso(obra.core.now() - timedelta(days=5)), k['id']))
+        self.c.commit()
+        self.assertEqual(self.error(obra.firmar_medicion_contratista, self.contr, {'accion': 'firma'}, k['id']).status, 409)  # la firma vence a los 3 días
+        self.llamar(obra.firmar_medicion_contratista, self.contr, {'accion': 'rechazo', 'motivo': 'La medición no coincide con el avance real.'}, None, k['id'])
+
+    def test_el_alta_de_usuarios_guarda_el_rango(self):
+        base = {'nombre': 'Jefe de certificaciones nuevo', 'login': 'jefe.rango', 'password': 'clave-de-prueba-2', 'rol': 'jefe_certificaciones'}
+        sis = self.usuario(self.cba, 'Admin de sistema T', 'administrador')
+        self.assertEqual(self.llamar(core.alta_usuario, sis, base)[1]['rango'], 1)
+        self.assertEqual(self.llamar(core.alta_usuario, sis, dict(base, login='jefe.rango2', rango=3))[1]['rango'], 3)
+        self.assertEqual(self.error(core.alta_usuario, sis, dict(base, login='jefe.rango3', rango=9)).status, 400)
+
+    def test_los_parametros_del_ente_estan_configurados(self):
+        p = self.llamar(obra.ver_parametros, self.admin)[1]
+        self.assertEqual(p['plazos']['firma_dias'], 3)
+        self.assertEqual(p['plazos']['protesta_dias'], 10)
+        self.assertEqual(p['topes_modificacion'], {'por_item_pct': 20, 'total_pct': 30})
+        self.assertEqual(p['fondo_reparo_pct'], 5)
+
+
 class LibroDeObra(ObraBase):
     def os(self, asunto='Presentar el plan de trabajos', texto='Se solicita presentar el plan de trabajos actualizado.', uid=None):
         return self.llamar(obra.emitir_os, uid or self.insp, {'asunto': asunto, 'texto': texto}, None, self.oid)[1]

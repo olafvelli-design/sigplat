@@ -886,10 +886,13 @@ def alta_usuario(c, ctx):
         raise ApiError(400, 'la contraseña necesita al menos 8 caracteres')
     if c.execute('SELECT 1 FROM usuarios WHERE login=?', (login_nuevo,)).fetchone():
         raise ApiError(409, 'ese usuario ya existe')
-    cur = c.execute('INSERT INTO usuarios(ente_id,nombre,login,password_hash,rol,activo) VALUES(?,?,?,?,?,1)',
-                    (ente['id'], nombre, login_nuevo, hash_password(password), b['rol']))
+    rango = b.get('rango', 1)
+    if not isinstance(rango, int) or isinstance(rango, bool) or not 1 <= rango <= 5:
+        raise ApiError(400, 'rango debe ser un número entero de 1 a 5 (5 es el más alto)')
+    cur = c.execute('INSERT INTO usuarios(ente_id,nombre,login,password_hash,rol,activo,rango) VALUES(?,?,?,?,?,1,?)',
+                    (ente['id'], nombre, login_nuevo, hash_password(password), b['rol'], rango))
     audit(c, ente['id'], 'usuario', cur.lastrowid, 'creado', u['id'], {'rol': b['rol']})
-    return 201, {'id': cur.lastrowid, 'nombre': nombre, 'login': login_nuevo, 'rol': b['rol']}
+    return 201, {'id': cur.lastrowid, 'nombre': nombre, 'login': login_nuevo, 'rol': b['rol'], 'rango': rango}
 
 
 # ---------- autenticación ----------
