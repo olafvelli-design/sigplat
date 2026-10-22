@@ -14,18 +14,19 @@
 
 ## Roles actuales
 
-Inspector, responsable de cuadrilla, autoridad, administrador, vecino, contratista, administrativo. Las cuentas de demo están en `scripts/seed.py` (`USUARIOS_SIMPLES`) y en `data/credenciales_prueba.txt`, que no se versiona.
+Inspector, responsable de cuadrilla, autoridad, administrador, vecino, contratista (representante técnico), administrativo, jefe de inspección, analista de certificaciones, jefe de certificaciones, director y auditor (sólo lectura). El administrador de sistema es el rol `administrador` con alta de usuarios (`POST /usuarios`); no firma actos. Las cuentas de demo están en `scripts/seed.py` (`USUARIOS_SIMPLES`) y en `data/credenciales_prueba.txt`, que no se versiona.
 
 ## Tests
 
 - Suite: `python -m unittest discover -s tests`.
 - Antes de la etapa 1: 144 pruebas, OK.
-- Después de la etapa 1: 152 pruebas, OK (8 nuevas sobre notas, recorte de la contratista y registro de firmas).
+- Después de la etapa 1: 152 pruebas, OK.
+- Después de la etapa 2: 160 pruebas, OK (8 nuevas en `RolesDeObra`).
 
 ## Pendiente
 
-- Etapa 1, punto a: la contratista **todavía puede subir documentos y cargar planillas de hormigón**. Se mantuvo a la espera de tu decisión (ver `DECISIONES.md`).
-- Etapa 2: roles nuevos (representante técnico, jefe de inspección, analista y jefe de certificaciones, director, auditor, administrador de sistema).
-- Etapa 3: rango por usuario, topes de modificación (20 % por ítem, 30 % del total), y parámetros por ente (plazos de firma, protesta, denuncia y pago; fondo de reparo).
+- **Etapa 2, no implementado** (decisiones en DECISIONES.md): que el analista emita certificados (hoy emite el inspector); la aprobación del jefe de certificaciones (aprueba o devuelve); la certificación final del director; propuesta de multas y reclamos del jefe de inspección; redeterminaciones y recepciones de la autoridad; una persona con dos roles.
+- Etapa 3: rango por usuario, topes de modificación (20 % por ítem, 30 % del total), y parámetros por ente.
+- Pantalla de alta de usuarios y de parámetros para el administrador de sistema.
 - Vista previa del certificado dentro de "Gestionar mes".
 - Pruebas de usabilidad con usuarios reales: no hechas.

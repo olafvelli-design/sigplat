@@ -592,13 +592,16 @@ function tabsDisponibles() {
   if (!rol) return publicas;
   if (rol === 'vecino') return [...publicas, ['mis_reportes', 'Mis reportes']];
   if (rol === 'responsable') return [['intervenciones', 'Mis intervenciones'], ...publicas];
-  if (rol === 'contratista' || rol === 'administrativo') return [['obras', 'Obras'], ...publicas];
+  if (['jefe_inspeccion', 'analista_certificaciones', 'jefe_certificaciones', 'director'].includes(rol)) return [['midia', 'Mi día'], ['obras', 'Obras'], ...publicas];
+  if (rol === 'auditor') return [['obras', 'Obras'], ...publicas];  // sólo lectura de todo el ente
+  if (rol === 'contratista' || rol === 'administrativo') return [['midia', 'Mi día'], ['obras', 'Obras'], ...publicas];
   const t = rol === 'administrador' ? [['mapa', 'Tablero y mapa'], ['incidencias', 'Bandeja'], ['intervenciones', 'Intervenciones'], ['obras', 'Obras']]
     : [['midia', 'Mi día'], ['obras', 'Obras'], ['trabajo', 'Reportes a inspeccionar'], ['incidencias', 'Bandeja'], ['intervenciones', 'Intervenciones'], ['mapa', 'Tablero y mapa']];
   return [...t, ...publicas];
 }
 const aterrizaje = rol => ({ inspector: 'midia', autoridad: 'midia', responsable: 'intervenciones', vecino: 'mis_reportes', administrador: 'mapa',
-  contratista: 'midia', administrativo: 'midia' }[rol] || 'ciudadano');
+  contratista: 'midia', administrativo: 'midia', jefe_inspeccion: 'midia', analista_certificaciones: 'midia', jefe_certificaciones: 'midia',
+  director: 'midia', auditor: 'obras' }[rol] || 'ciudadano');
 
 function pintarTabs() {
   const tabs = tabsDisponibles();
@@ -999,6 +1002,8 @@ function tareasDeObra(o) {
   }
   if (rolEn('contratista') && r.os_sin_responder) t.push(['libro', `Responder ${r.os_sin_responder} orden(es) de servicio`]);
   if (rolEn('contratista') && r.notas_sin_responder) t.push(['libro', `${r.notas_sin_responder} nota(s) de pedido esperan respuesta`]);
+  if (rolEn('contratista') && r.firmas_pendientes) t.push(['libro', `Firmar ${r.firmas_pendientes} medición(es) o certificado(s)`]);
+  if (rolEn('jefe_inspeccion') && r.mediciones_sin_validar) t.push(['computo', `Validar ${r.mediciones_sin_validar} medición(es)`]);
   if (rolEn('inspector') && soyInsp && r.notas_sin_responder) t.push(['libro', `Responder ${r.notas_sin_responder} nota(s) de pedido`]);
   return t;
 }
@@ -2004,6 +2009,12 @@ async function pantallaComputo(f, kid, soy) {
     window.print();
   };
   if ($('#kVerCert')) $('#kVerCert').onclick = () => { S.obra.tab = 'certificados'; S.obra.certAbrir = k.certificado.id; vistaObra(); };
+  if (rolEn('jefe_inspeccion') && k.estado === 'presentado' && !(k.registro || []).some(x => x.accion === 'validada')) {
+    cont.insertAdjacentHTML('afterbegin', '<div class="row"><button type="button" id="gValidar">Validar medición</button></div>');
+    $('#gValidar').onclick = async () => {
+      try { await api('POST', `/computos/${kid}/validar`, {}); toast('Medición validada'); await vistaObra(); } catch (err) { mensaje($('#medMsg'), err.message, false); }
+    };
+  }
 
   const leer = () => { const out = {}; for (const i of items) out[i.item_id] = numEntrada($(`#q${i.item_id}`).value); return out; };
   const actualizar = () => {
@@ -2242,7 +2253,8 @@ async function tabLibro(f) {
   const cont = $('#obraCuerpo'), soyInsp = esInspectorDe(f), soyContr = rolEn('contratista');
   const lista = await api('GET', `/obras/${f.id}/ordenes-servicio`);
   const notas = await api('GET', `/obras/${f.id}/notas`);
-  cont.innerHTML = `<h3>Notas de pedido</h3>
+  cont.innerHTML = `${soyContr ? '<h3>Mediciones y certificados para firmar</h3><p class="small">Firmá conforme o rechazá con motivo. Cada uno se firma una sola vez y queda registrado.</p><div id="firmasLista"></div>' : ''}
+    <h3>Notas de pedido</h3>
     <p class="small">La contratista pide una ampliación de plazo, una modificación de obra u otra cosa. La inspección responde una sola vez y el registro no se edita.</p>
     ${soyContr ? '<div class="row"><button type="button" class="big" id="notaNueva">+ Solicitar nota de pedido</button></div>' : ''}
     ${notas.length ? notas.slice().reverse().map(n => `<div class="tarjeta"><div class="row"><b>Nota de pedido N° ${n.numero}</b><span class="small">${esc(n.tipo_nombre)}</span>${etiqueta(n.estado === 'pendiente' ? 'Pendiente de respuesta' : 'Respondida', n.estado === 'pendiente' ? 'aviso' : 'ok')}</div>
@@ -2260,6 +2272,29 @@ async function tabLibro(f) {
       <div class="row">${soyContr && o.estado === 'emitida' ? `<button type="button" data-resp="${o.id}">Responder</button>` : ''}
         ${soyInsp && o.estado === 'respondida' ? `<button type="button" data-cerrar="${o.id}">Cerrar la orden</button>` : ''}</div></div>`).join('') : '<p class="vacio small">Todavía no hay órdenes de servicio.</p>'}`;
   const terminar = async txt => { toast(txt); await vistaObra(); };
+  if (soyContr) {
+    const fs = await api('GET', `/obras/${f.id}/firmas-contratista`);
+    $('#firmasLista').innerHTML = fs.length ? fs.map(i => `<div class="tarjeta"><div class="row"><b>${esc(i.titulo)}</b>${i.firmado
+      ? etiqueta(i.firmado === 'firmado' ? 'Firmada conforme' : 'Rechazada', i.firmado === 'firmado' ? 'ok' : 'malo')
+      : etiqueta('Pendiente de tu firma', 'aviso')}</div>
+      ${i.firmado ? '' : `<div class="row"><button type="button" data-fir="${i.entidad}|${i.id}|firma">Firmar conforme</button>
+        <button type="button" class="sec" data-fir="${i.entidad}|${i.id}|rechazo">Rechazar…</button></div>`}</div>`).join('')
+      : '<p class="vacio small">No hay mediciones ni certificados para firmar.</p>';
+    cont.addEventListener('click', async e => {
+      const fb = e.target.closest('[data-fir]');
+      if (!fb) return;
+      const [entidad, id, accion] = fb.dataset.fir.split('|');
+      try {
+        let motivo = null;
+        if (accion === 'rechazo') {
+          motivo = await pedirTexto({ titulo: 'Rechazar', etiqueta: 'Motivo del rechazo (queda registrado)', minimo: 10, boton: 'Rechazar' });
+          if (!motivo) return;
+        }
+        await api('POST', `/${entidad === 'computo' ? 'computos' : 'certificados'}/${id}/firma-contratista`, { accion: accion === 'firma' ? 'firma' : 'rechazo', motivo });
+        await terminar(accion === 'firma' ? 'Firma registrada' : 'Rechazo registrado');
+      } catch (err) { mensaje($('#osMsg'), err.message, false); }
+    });
+  }
   if ($('#notaNueva')) $('#notaNueva').onclick = async () => {
     const r = await modal({ titulo: 'Solicitar una nota de pedido', html: `<label for="nTipo">Tipo</label><select id="nTipo">
         <option value="ampliacion_plazo">Ampliación de plazo</option><option value="modificacion_obra">Modificación de obra</option><option value="otra">Otra</option></select>

@@ -102,20 +102,26 @@ def _obra(c, ente, oid):
     return core.fila(r)
 
 
-def _visible(u, obra):
-    """El inspector ve sus obras, el contratista la suya; administrativo, autoridad y administrador, todas las del ente."""
+FUNCIONES_OBRA = ('jefe_inspeccion', 'analista_certificaciones', 'jefe_certificaciones', 'director')  # sólo ven las obras asignadas
+
+
+def _visible(c, u, obra):
+    """Inspector y contratista: su obra. Jefe de inspección, analista, jefe de certificaciones y director: las obras donde están asignados.
+    Autoridad, administrativo, administrador y auditor: todas las del ente (el auditor sólo lee)."""
     if u['rol'] == 'inspector':
         return obra['inspector_id'] == u['id']
     if u['rol'] == 'contratista':
         return obra['contratista_id'] == u['id']
-    return u['rol'] in ('autoridad', 'administrativo', 'administrador')
+    if u['rol'] in FUNCIONES_OBRA:
+        return c.execute('SELECT 1 FROM obra_asignados WHERE obra_id=? AND usuario_id=?', (obra['id'], u['id'])).fetchone() is not None
+    return u['rol'] in ('autoridad', 'administrativo', 'administrador', 'auditor')
 
 
 def _obra_para(c, ctx, permiso='ver_obras', oid=None):
     u, ente = core.usuario_actual(c, ctx)
     core.exigir(u, permiso)
     obra = _obra(c, ente, oid)
-    if not _visible(u, obra):
+    if not _visible(c, u, obra):
         raise ApiError(404, 'obra inexistente')  # no revela que existe
     return u, ente, obra
 
@@ -249,11 +255,12 @@ ORDEN_ESTADOS_OBRA = ['preadjudicada', 'adjudicada', 'en_ejecucion', 'finalizada
 
 
 def cambiar_estado_obra(c, ctx, oid):
-    """Avanza el estado de la obra de a un paso. Adjudicar exige el legajo publicado; ejecutar, un inspector asignado."""
-    u, ente, obra = _obra_para(c, ctx, 'asignar_obra', oid)
+    """Avanza el estado de la obra de a un paso. Adjudicar (autoridad) exige el legajo publicado; ejecutar, un inspector asignado."""
+    u, ente, obra = _obra_para(c, ctx, 'ver_obras', oid)
     nuevo = ctx['body'].get('estado')
     if nuevo not in ORDEN_ESTADOS_OBRA:
         raise ApiError(400, 'estado debe ser uno de: ' + ', '.join(ORDEN_ESTADOS_OBRA))
+    core.exigir(u, 'adjudicar_obra' if nuevo == 'adjudicada' else 'asignar_obra')
     if ORDEN_ESTADOS_OBRA.index(nuevo) != ORDEN_ESTADOS_OBRA.index(obra['estado']) + 1:
         raise ApiError(409, f'la obra está {obra["estado"]}: sólo puede pasar al estado siguiente')
     if nuevo == 'adjudicada' and obra['legajo_estado'] != 'publicado':
@@ -425,7 +432,7 @@ def _vista_computo(c, obra, k):
             'es_final': bool(k['es_final']), 'observaciones': k['observaciones'], 'items': filas, 'totales': tot,
             'items_que_superan_oferta': sup, 'monto_contrato_cent': monto,
             'certificado': {'id': cert['id'], 'numero': cert['numero'], 'estado': cert['estado']} if cert else None,
-            'editable': k['estado'] in ('borrador', 'presentado') and cert is None}
+            'editable': k['estado'] in ('borrador', 'presentado') and cert is None, 'registro': _firmas(c, 'computo', k['id'])}
 
 
 def _computo_para(c, ctx, kid, escribir=False):
@@ -436,7 +443,7 @@ def _computo_para(c, ctx, kid, escribir=False):
     if k is None:
         raise ApiError(404, 'cómputo inexistente')
     obra = _obra(c, ente, k['obra_id'])
-    if not _visible(u, obra):
+    if not _visible(c, u, obra):
         raise ApiError(404, 'cómputo inexistente')
     return u, ente, obra, core.fila(k)
 
@@ -479,7 +486,8 @@ def nuevo_computo(c, ctx, oid):
 
 def ver_computo(c, ctx, kid):
     u, ente, obra, k = _computo_para(c, ctx, kid)
-    _exigir_interno(u)
+    if u['rol'] == 'contratista' and k['estado'] != 'presentado':
+        raise ApiError(404, 'cómputo inexistente')  # la contratista ve sólo las mediciones presentadas, para firmarlas
     return 200, _vista_computo(c, obra, k)
 
 
@@ -616,6 +624,8 @@ def _resumen(c, obra, items=None):
             'avance_certificado_pct': real[-1]['real_acum_pct'] if real else None,
             'avance_medido_pct': pct(medido, monto), 'desvio': cv['desvio'], 'mes_a_medir': mes_a_medir,
             'notas_sin_responder': c.execute("SELECT COUNT(*) FROM notas_pedido WHERE obra_id=? AND estado='pendiente'", (obra['id'],)).fetchone()[0],
+            'mediciones_sin_validar': sum(1 for k in c.execute("SELECT id FROM computos WHERE obra_id=? AND estado='presentado'", (obra['id'],))
+                                          if _firma_de(c, 'computo', k['id'], 'jefe_inspeccion') is None),
             'computo_en_curso': ultimo['id'] if ultimo is not None and ultimo['estado'] == 'borrador' else None}
 
 
@@ -633,7 +643,7 @@ def listar_obras(c, ctx):
     out = []
     for r in c.execute('SELECT * FROM obras WHERE ente_id=? ORDER BY id', (ente['id'],)):
         obra = core.fila(r)
-        if _visible(u, obra):
+        if _visible(c, u, obra):
             out.append(dict(_datos_obra(c, obra), resumen=_resumen_contratista(c, obra) if u['rol'] == 'contratista' else _resumen(c, obra)))
     return 200, out
 
@@ -698,7 +708,7 @@ def _cert_para(c, ctx, cid, permiso='ver_obras'):
     if r is None:
         raise ApiError(404, 'certificado inexistente')
     obra = _obra(c, ente, r['obra_id'])
-    if not _visible(u, obra):
+    if not _visible(c, u, obra):
         raise ApiError(404, 'certificado inexistente')
     return u, ente, obra, core.fila(r)
 
@@ -722,7 +732,7 @@ def emitir_certificado(c, ctx, oid):
     u, ente = core.usuario_actual(c, ctx)
     core.exigir(u, 'emitir_certificado')
     obra = _obra(c, ente, oid)
-    if not _visible(u, obra):
+    if not _visible(c, u, obra):
         raise ApiError(404, 'obra inexistente')
     b = ctx['body']
     k = c.execute('SELECT * FROM computos WHERE id=? AND obra_id=?', (b.get('computo_id'), oid)).fetchone()
@@ -775,7 +785,8 @@ def _ficha_certificado(c, obra, cert):
 
 def ficha_certificado(c, ctx, cid):
     u, ente, obra, cert = _cert_para(c, ctx, cid)
-    _exigir_interno(u)
+    if u['rol'] == 'contratista' and cert['estado'] == 'anulado':
+        raise ApiError(404, 'certificado inexistente')
     return 200, _ficha_certificado(c, obra, cert)
 
 
@@ -946,7 +957,7 @@ def autorizar_modificacion(c, ctx, cid):
     if cv is None or cv['tipo'] == 'principal':
         raise ApiError(404, 'modificación inexistente')
     obra = _obra(c, ente, cv['obra_id'])
-    if not _visible(u, obra):
+    if not _visible(c, u, obra):
         raise ApiError(404, 'modificación inexistente')
     if cv['estado'] != 'pendiente':
         raise ApiError(409, 'la modificación ya está autorizada')
@@ -973,7 +984,7 @@ def _os_para(c, ctx, osid, permiso):
     if r is None:
         raise ApiError(404, 'orden de servicio inexistente')
     obra = _obra(c, ente, r['obra_id'])
-    if not _visible(u, obra):
+    if not _visible(c, u, obra):
         raise ApiError(404, 'orden de servicio inexistente')
     return u, ente, obra, core.fila(r)
 
@@ -1063,7 +1074,7 @@ def _nota_para(c, ctx, nid, permiso):
     if r is None:
         raise ApiError(404, 'nota de pedido inexistente')
     obra = _obra(c, ente, r['obra_id'])
-    if not _visible(u, obra):
+    if not _visible(c, u, obra):
         raise ApiError(404, 'nota de pedido inexistente')
     return u, ente, obra, core.fila(r)
 
@@ -1105,7 +1116,12 @@ def responder_nota(c, ctx, nid):
 def _resumen_contratista(c, obra):
     """Lo único que ve la contratista de los plazos y pendientes: sin montos, certificados ni curvas."""
     fin, h = fecha_fin(obra), hoy()
+    firmas_pend = sum(1 for k in c.execute("SELECT id FROM computos WHERE obra_id=? AND estado='presentado'", (obra['id'],))
+                      if _firma_de(c, 'computo', k['id'], 'contratista') is None)
+    firmas_pend += sum(1 for ce in c.execute("SELECT id FROM certificados WHERE obra_id=? AND estado!='anulado'", (obra['id'],))
+                       if _firma_de(c, 'certificado', ce['id'], 'contratista') is None)
     return {'plazo': _plazo_info(c, obra), 'fecha_fin': fin.strftime('%Y-%m-%d'), 'dias_restantes': (fin - h).days, 'vencida': h > fin,
+            'firmas_pendientes': firmas_pend,
             'os_sin_responder': c.execute("SELECT COUNT(*) FROM ordenes_servicio WHERE obra_id=? AND estado='emitida'", (obra['id'],)).fetchone()[0],
             'notas_sin_responder': c.execute("SELECT COUNT(*) FROM notas_pedido WHERE obra_id=? AND estado='pendiente'", (obra['id'],)).fetchone()[0]}
 
@@ -1189,7 +1205,7 @@ def _doc_para(c, ctx, did, permiso='ver_obras'):
     if r is None:
         raise ApiError(404, 'documento inexistente')
     obra = _obra(c, ente, r['obra_id'])
-    if not _visible(u, obra):
+    if not _visible(c, u, obra):
         raise ApiError(404, 'documento inexistente')
     return u, ente, obra, core.fila(r)
 
@@ -1392,7 +1408,7 @@ def revisar_recepcion(c, ctx, rid):
     if r is None:
         raise ApiError(404, 'recepción inexistente')
     obra = _obra(c, ente, r['obra_id'])
-    if not _visible(u, obra) or obra['inspector_id'] != u['id']:
+    if not _visible(c, u, obra) or obra['inspector_id'] != u['id']:
         raise ApiError(404, 'recepción inexistente')
     if r['cargada_por'] == u['id']:
         raise ApiError(403, 'quien carga una planilla no puede revisarla')
@@ -1409,6 +1425,97 @@ def revisar_recepcion(c, ctx, rid):
               (nuevo, u['id'], core.iso(core.now()), obs, rid))
     core.audit(c, ente['id'], 'recepcion_hormigon', rid, nuevo, u['id'], {'observacion': obs})
     return 200, _rec_dict(c, c.execute('SELECT * FROM recepciones_hormigon WHERE id=?', (rid,)).fetchone())
+
+
+# ---------- equipo de la obra y firmas del representante técnico ----------
+
+def asignar_equipo(c, ctx, oid):
+    """El administrativo asigna a la obra al jefe de inspección, analista, jefe de certificaciones o director del ente."""
+    u, ente, obra = _obra_para(c, ctx, 'asignar_obra', oid)
+    uid = ctx['body'].get('usuario_id')
+    r = c.execute('SELECT id, rol FROM usuarios WHERE id=? AND ente_id=? AND activo=1', (uid, ente['id'])).fetchone()
+    if r is None or r['rol'] not in FUNCIONES_OBRA:
+        raise ApiError(400, 'usuario_id debe ser un jefe de inspección, analista, jefe de certificaciones o director de este ente')
+    c.execute('INSERT OR REPLACE INTO obra_asignados(obra_id,usuario_id,funcion) VALUES(?,?,?)', (oid, uid, r['rol']))
+    core.audit(c, ente['id'], 'obra', oid, 'equipo_asignado', u['id'], {'usuario': uid, 'funcion': r['rol']})
+    return 200, {'obra_id': oid, 'usuario_id': uid, 'funcion': r['rol']}
+
+
+def _firma_de(c, entidad, eid, rol):
+    r = c.execute('SELECT accion FROM firmas_registro WHERE entidad=? AND entidad_id=? AND rol=? ORDER BY id DESC LIMIT 1', (entidad, eid, rol)).fetchone()
+    return r['accion'] if r else None
+
+
+def _firmable(c, ctx, entidad, eid, permiso):
+    """Devuelve (usuario, ente, obra, fila) del cómputo o certificado si la persona puede verlo."""
+    u, ente = core.usuario_actual(c, ctx)
+    core.exigir(u, permiso)
+    tabla = 'computos' if entidad == 'computo' else 'certificados'
+    r = c.execute(f'SELECT * FROM {tabla} WHERE id=?', (eid,)).fetchone()
+    if r is None:
+        raise ApiError(404, 'inexistente')
+    obra = _obra(c, ente, r['obra_id'])
+    if not _visible(c, u, obra):
+        raise ApiError(404, 'inexistente')
+    return u, ente, obra, core.fila(r)
+
+
+def firmar_contratista(c, ctx, entidad, eid):
+    """El representante técnico firma (conforme) o rechaza (con motivo) una medición presentada o un certificado vigente. Una sola vez."""
+    u, ente, obra, fila = _firmable(c, ctx, entidad, eid, 'firmar_contratista')
+    if entidad == 'computo' and fila['estado'] != 'presentado':
+        raise ApiError(409, 'sólo se firma una medición presentada')
+    if entidad == 'certificado' and fila['estado'] == 'anulado':
+        raise ApiError(409, 'no se firma un certificado anulado')
+    accion = ctx['body'].get('accion')
+    if accion not in ('firma', 'rechazo'):
+        raise ApiError(400, 'accion debe ser firma o rechazo')
+    motivo = None
+    if accion == 'rechazo':
+        motivo = core.texto(ctx['body'].get('motivo'), 10, 500, 'motivo del rechazo')
+    if _firma_de(c, entidad, eid, 'contratista'):
+        raise ApiError(409, 'ya firmaste o rechazaste esta ' + ('medición' if entidad == 'computo' else 'certificado'))
+    _registrar_firma(c, ente['id'], entidad, eid, 'firmado' if accion == 'firma' else 'rechazado', u, motivo)
+    core.audit(c, ente['id'], entidad, eid, 'firma_contratista', u['id'], {'accion': accion})
+    return 201, {'entidad': entidad, 'id': eid, 'accion': accion, 'motivo': motivo}
+
+
+def firmar_medicion_contratista(c, ctx, kid):
+    return firmar_contratista(c, ctx, 'computo', kid)
+
+
+def firmar_certificado_contratista(c, ctx, cid):
+    return firmar_contratista(c, ctx, 'certificado', cid)
+
+
+def firmas_contratista(c, ctx, oid):
+    """Lo que la contratista tiene que firmar en la obra: mediciones presentadas y certificados vigentes, con lo que ya firmó o rechazó."""
+    u, ente, obra = _obra_para(c, ctx, 'firmar_contratista', oid)
+    out = []
+    for k in c.execute("SELECT * FROM computos WHERE obra_id=? AND estado='presentado' ORDER BY mes", (oid,)):
+        out.append({'entidad': 'computo', 'id': k['id'], 'titulo': f'Medición de {mes_txt(k["mes"])}', 'firmado': _firma_de(c, 'computo', k['id'], 'contratista')})
+    for ce in c.execute("SELECT * FROM certificados WHERE obra_id=? AND estado!='anulado' ORDER BY numero", (oid,)):
+        out.append({'entidad': 'certificado', 'id': ce['id'], 'titulo': f'Certificado N° {ce["numero"]}', 'firmado': _firma_de(c, 'certificado', ce['id'], 'contratista')})
+    return 200, out
+
+
+def validar_medicion(c, ctx, kid):
+    """El jefe de inspección valida una medición presentada. Queda en el registro; no bloquea el certificado (ver DECISIONES.md)."""
+    u, ente, obra, k = _firmable(c, ctx, 'computo', kid, 'validar_medicion')
+    if k['estado'] != 'presentado':
+        raise ApiError(409, 'sólo se valida una medición presentada')
+    if _firma_de(c, 'computo', kid, 'jefe_inspeccion'):
+        raise ApiError(409, 'esta medición ya fue validada')
+    _registrar_firma(c, ente['id'], 'computo', kid, 'validada', u)
+    core.audit(c, ente['id'], 'computo', kid, 'validada', u['id'], {'mes': k['mes']})
+    return 200, {'id': kid, 'validada_por': u['nombre']}
+
+
+def mes_txt(m):
+    return MESES_TXT[int(m[5:7]) - 1] + ' ' + m[:4]
+
+
+MESES_TXT = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
 
 
 # ---------- legajo técnico de la obra ----------
@@ -1500,6 +1607,11 @@ def publicar_legajo(c, ctx, oid):
 
 
 RUTAS = [
+    ('POST', r'^/obras/(\d+)/equipo$', asignar_equipo),
+    ('GET', r'^/obras/(\d+)/firmas-contratista$', firmas_contratista),
+    ('POST', r'^/computos/(\d+)/firma-contratista$', firmar_medicion_contratista),
+    ('POST', r'^/certificados/(\d+)/firma-contratista$', firmar_certificado_contratista),
+    ('POST', r'^/computos/(\d+)/validar$', validar_medicion),
     ('GET', r'^/obras/(\d+)/notas$', listar_notas),
     ('POST', r'^/obras/(\d+)/notas$', solicitar_nota),
     ('POST', r'^/notas/(\d+)/respuesta$', responder_nota),

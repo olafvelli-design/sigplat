@@ -26,7 +26,13 @@ CREDENCIALES = []  # (ente, login, nombre, rol); se escribe en data/credenciales
 USUARIOS_SIMPLES = [('vecino', 'Vecino de prueba', 'vecino'), ('inspector', 'Inspector de prueba', 'inspector'),
                     ('contratista', 'Representante de la contratista (ficticio)', 'contratista'),
                     ('administrativo', 'Administrativo de prueba', 'administrativo'),
-                    ('autoridad', 'Autoridad de prueba', 'autoridad')]
+                    ('autoridad', 'Autoridad de prueba', 'autoridad'),
+                    ('jefe_inspeccion', 'Jefe de inspección de prueba', 'jefe_inspeccion'),
+                    ('analista_certificaciones', 'Analista de certificaciones de prueba', 'analista_certificaciones'),
+                    ('jefe_certificaciones', 'Jefe de certificaciones de prueba', 'jefe_certificaciones'),
+                    ('director', 'Director de obra de prueba', 'director'),
+                    ('auditor', 'Auditor de prueba (sólo lectura)', 'auditor'),
+                    ('admin_sistema', 'Administrador de sistema de prueba', 'administrador')]
 
 
 def png_color(rgb, lado=16):
@@ -237,6 +243,9 @@ def sembrar_obra(s, simples):
         fondo_inspeccion_pct=1, plazo_venc_cert_dias=30, lat=-31.4412, lon=-64.2105, usuario_id=simples['autoridad'],
         ident={'tipo_contratacion': 'Licitación Presencial - O.P.', 'nro_contratacion': '14/2026', 'expediente': '0045-012000/2026',
                'servicio_administrativo': 'Secretaría de Obras (ficticia)'})
+    c.commit()
+    for rol_eq in ('jefe_inspeccion', 'analista_certificaciones', 'jefe_certificaciones', 'director'):  # el equipo de la cadena de obra
+        obra.asignar_equipo(c, ctx({'usuario_id': simples[rol_eq]}, simples['administrativo']), oid)
     c.commit()
     sembrar_legajo(s, simples, oid, m, en)
     ids = {r['nro']: r['id'] for r in c.execute('SELECT id, nro FROM items_obra WHERE obra_id=?', (oid,))}

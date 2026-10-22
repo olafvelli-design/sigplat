@@ -30,7 +30,8 @@ MAX_FOTO_BYTES = 3 * 1024 * 1024
 MIME_EXT = {'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp'}
 FOTO_RE = re.compile(r'^data:(image/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=\s]+)$')
 
-ROLES = ('inspector', 'responsable', 'autoridad', 'administrador')  # personal del ente
+ROLES = ('inspector', 'responsable', 'autoridad', 'administrador', 'jefe_inspeccion', 'analista_certificaciones',
+         'jefe_certificaciones', 'director', 'auditor')  # personal del ente
 ROL_VECINO = 'vecino'  # cuenta ciudadana: reporta y ve sólo sus reportes; no está en PERMISOS, así que no accede a nada interno
 ESTADO_PUBLICO = {
     'recibida': 'Recibida, en revisión',
@@ -51,7 +52,12 @@ PERMISOS = {
     'ver_incidencias': {'inspector', 'autoridad', 'administrador'},
     'ver_tablero': {'inspector', 'autoridad', 'administrador'},
     # Modo obra (simulación de SIGO y SIGUE). Ver MODO_OBRA.md y app/obra.py.
-    'ver_obras': {'inspector', 'autoridad', 'administrativo', 'administrador', 'contratista'},
+    'ver_obras': {'inspector', 'autoridad', 'administrativo', 'administrador', 'contratista', 'jefe_inspeccion', 'analista_certificaciones',
+                  'jefe_certificaciones', 'director', 'auditor'},
+    'validar_medicion': {'jefe_inspeccion'},
+    'firmar_contratista': {'contratista'},  # el representante técnico firma o rechaza mediciones y certificados
+    'adjudicar_obra': {'autoridad'},
+    'gestionar_usuarios': {'administrador'},  # administrador de sistema: usuarios; no firma actos
     'medir': {'inspector'},
     'emitir_certificado': {'inspector'},  # el inspector mide y certifica; otra persona (la autoridad) autoriza
     'autorizar_certificado': {'autoridad'},
@@ -859,6 +865,32 @@ def listar_usuarios(c, ctx):
                                             (ente['id'],))]
 
 
+ROLES_ALTA = ('responsable', 'inspector', 'autoridad', 'administrador', 'administrativo', 'contratista', 'jefe_inspeccion',
+               'analista_certificaciones', 'jefe_certificaciones', 'director', 'auditor')
+
+
+def alta_usuario(c, ctx):
+    """Administrador de sistema: da de alta personal y contratistas del ente. No firma actos. La contraseña nunca se muestra después."""
+    u, ente = usuario_actual(c, ctx)
+    exigir(u, 'gestionar_usuarios')
+    b = ctx['body']
+    nombre = texto(b.get('nombre'), 3, 80, 'nombre')
+    login_nuevo = str(b.get('login') or '').strip().lower()
+    if not re.match(r'^[a-z0-9._-]{3,40}$', login_nuevo):
+        raise ApiError(400, 'el usuario debe tener de 3 a 40 letras, números, puntos, guiones o guiones bajos')
+    if b.get('rol') not in ROLES_ALTA:
+        raise ApiError(400, 'rol no válido: ' + ', '.join(ROLES_ALTA))
+    password = b.get('password') or ''
+    if len(password) < 8:
+        raise ApiError(400, 'la contraseña necesita al menos 8 caracteres')
+    if c.execute('SELECT 1 FROM usuarios WHERE login=?', (login_nuevo,)).fetchone():
+        raise ApiError(409, 'ese usuario ya existe')
+    cur = c.execute('INSERT INTO usuarios(ente_id,nombre,login,password_hash,rol,activo) VALUES(?,?,?,?,?,1)',
+                    (ente['id'], nombre, login_nuevo, hash_password(password), b['rol']))
+    audit(c, ente['id'], 'usuario', cur.lastrowid, 'creado', u['id'], {'rol': b['rol']})
+    return 201, {'id': cur.lastrowid, 'nombre': nombre, 'login': login_nuevo, 'rol': b['rol']}
+
+
 # ---------- autenticación ----------
 
 def hash_password(password):
@@ -947,6 +979,7 @@ RUTAS = [
     ('POST', r'^/logout$', logout),
     ('GET', r'^/me$', me),
     ('GET', r'^/usuarios$', listar_usuarios),
+    ('POST', r'^/usuarios$', alta_usuario),
     ('POST', r'^/incidencias$', reportar),
     ('GET', r'^/seguimiento/([^/]*)$', seguimiento_publico),
     ('GET', r'^/mis-reportes$', mis_reportes),

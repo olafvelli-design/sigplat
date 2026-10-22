@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS usuarios (
     nombre        TEXT NOT NULL,
     login         TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
-    rol           TEXT NOT NULL CHECK (rol IN ('inspector','responsable','autoridad','administrador','vecino','contratista','administrativo')),
+    rol           TEXT NOT NULL CHECK (rol IN ('inspector','responsable','autoridad','administrador','vecino','contratista','administrativo',
+                                              'jefe_inspeccion','analista_certificaciones','jefe_certificaciones','director','auditor')),
     activo        INTEGER NOT NULL DEFAULT 1
 );
 
@@ -415,12 +416,21 @@ CREATE TABLE IF NOT EXISTS notas_pedido (
     UNIQUE (obra_id, numero)
 );
 
+-- Equipo asignado a cada obra. Los roles de la cadena de obra (jefe de inspección, analista, jefe de certificaciones y director)
+-- ven sólo las obras donde están asignados.
+CREATE TABLE IF NOT EXISTS obra_asignados (
+    obra_id     INTEGER NOT NULL REFERENCES obras(id),
+    usuario_id  INTEGER NOT NULL REFERENCES usuarios(id),
+    funcion     TEXT NOT NULL CHECK (funcion IN ('jefe_inspeccion','analista_certificaciones','jefe_certificaciones','director')),
+    PRIMARY KEY (obra_id, usuario_id)
+);
+
 -- Registro de firmas y actos: quién, con qué rol, cuándo y, si corresponde, el motivo (rechazo o anulación).
 -- Sólo se agrega: no se edita ni se borra.
 CREATE TABLE IF NOT EXISTS firmas_registro (
     id          INTEGER PRIMARY KEY,
     ente_id     INTEGER NOT NULL REFERENCES entes(id),
-    entidad     TEXT NOT NULL CHECK (entidad IN ('certificado','nota_pedido','orden_servicio')),
+    entidad     TEXT NOT NULL CHECK (entidad IN ('certificado','nota_pedido','orden_servicio','computo')),
     entidad_id  INTEGER NOT NULL,
     accion      TEXT NOT NULL,
     usuario_id  INTEGER NOT NULL REFERENCES usuarios(id),

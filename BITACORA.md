@@ -25,4 +25,17 @@
 **Pendiente de decisión** (ver DECISIONES.md, punto 1): si la contratista sigue subiendo documentos y planillas de hormigón. Se mantuvo.
 
 ## Etapa 2 · Roles nuevos
-Pendiente. Esperando la confirmación de la etapa 1.
+**Confirmada la etapa 1** por el responsable: se mantiene la carga de documentos y planillas de la contratista.
+
+**Cambió**
+- `schema.sql`: roles nuevos en `usuarios.rol`; tabla `obra_asignados`; `firmas_registro` admite `computo`.
+- `core.py`: permisos `validar_medicion`, `firmar_contratista`, `adjudicar_obra`, `gestionar_usuarios`; roles en `ver_obras`; `alta_usuario` (`POST /usuarios`).
+- `obra.py`: `_visible` mira la asignación de la obra para los roles de la cadena; `asignar_equipo`; `firmar_contratista` (firma o rechazo, una vez, con motivo); `validar_medicion`; `firmas_contratista`; adjudicar pasa a la autoridad; el resumen cuenta mediciones sin validar y firmas pendientes.
+- Visibilidad de la contratista: ve el cómputo presentado y el certificado vigente que firma (cambio respecto de la etapa 1, marcado en DECISIONES.md).
+- `seed.py`: cuentas nuevas con usuario = contraseña (`jefe_inspeccion`, `analista_certificaciones`, `jefe_certificaciones`, `director`, `auditor`, `admin_sistema`); equipo asignado a la obra de ejemplo.
+- `index.html`: Mi día y pestañas por rol; la contratista firma o rechaza en el libro de obra; el jefe valida en "Gestionar mes".
+- Tests: 8 nuevas en `RolesDeObra`; 3 ajustadas (la contratista ve el certificado que firma; adjudica la autoridad).
+
+**Resultado**: **160 OK**. Probado en el navegador: la contratista ve sus firmas pendientes; el jefe ve "Validar 4 medición(es)" y valida una medición.
+
+**Sin implementar** (ver DECISIONES.md): emisión por el analista, aprobación del jefe de certificaciones, certificación del director, multas y reclamos, redeterminaciones y recepciones, y dos roles por persona.

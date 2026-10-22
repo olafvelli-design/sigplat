@@ -898,10 +898,9 @@ class Certificados(ObraBase):
         with self.assertRaises(core.ApiError) as e:
             self.llamar(obra.ficha_certificado, otro, None, None, cert['id'])
         self.assertEqual(e.exception.status, 404)
-        # la contratista de la obra no ve los certificados (sólo sus notas y órdenes de servicio)
-        with self.assertRaises(core.ApiError) as e2:
-            self.llamar(obra.ficha_certificado, self.contr, None, None, cert['id'])
-        self.assertEqual(e2.exception.status, 404)
+        # la contratista de la obra ve el certificado vigente que firma; la lista completa de certificados, no
+        self.llamar(obra.ficha_certificado, self.contr, None, None, cert['id'])
+        self.assertEqual(self.error(obra.listar_certificados, self.contr, None, self.oid).status, 404)
 
 
 class ModificacionesDeObra(ObraBase):
@@ -1117,12 +1116,13 @@ class CodigosYLegajo(ObraBase):
 
     def test_publicar_el_legajo_habilita_adjudicar_y_ejecutar_exige_inspector(self):
         o = self.alta()
-        self.assertEqual(self.error(obra.cambiar_estado_obra, self.admin, {'estado': 'adjudicada'}, o['id']).status, 409)
+        self.assertEqual(self.error(obra.cambiar_estado_obra, self.auth, {'estado': 'adjudicada'}, o['id']).status, 409)  # sin legajo publicado
         self.legajo_completo(o['id'])
         _, l = self.llamar(obra.publicar_legajo, self.admin, None, None, o['id'])
         self.assertEqual(l['estado'], 'publicado')
         self.assertEqual(self.error(obra.publicar_legajo, self.admin, None, o['id']).status, 409)
-        self.assertEqual(self.llamar(obra.cambiar_estado_obra, self.admin, {'estado': 'adjudicada'}, None, o['id'])[1]['estado'], 'adjudicada')
+        self.assertEqual(self.error(obra.cambiar_estado_obra, self.admin, {'estado': 'adjudicada'}, o['id']).status, 403)  # adjudica la autoridad
+        self.assertEqual(self.llamar(obra.cambiar_estado_obra, self.auth, {'estado': 'adjudicada'}, None, o['id'])[1]['estado'], 'adjudicada')
         self.assertEqual(self.error(obra.cambiar_estado_obra, self.admin, {'estado': 'en_ejecucion'}, o['id']).status, 409)  # sin inspector
         self.llamar(obra.asignar_obra, self.admin, {'inspector_id': self.insp, 'contratista_id': self.contr}, None, o['id'])
         self.assertEqual(self.llamar(obra.cambiar_estado_obra, self.admin, {'estado': 'en_ejecucion'}, None, o['id'])[1]['estado'], 'en_ejecucion')
@@ -1201,10 +1201,10 @@ class NotasYContratista(ObraBase):
     def test_la_contratista_no_ve_cómputos_certificados_curvas_ni_legajo(self):
         k = self.computo_certificado(c2=10)
         cid = self.cert_de(k)
-        self.assertEqual(self.error(obra.ver_computo, self.contr, None, k).status, 404)
+        self.assertEqual(self.llamar(obra.ver_computo, self.contr, None, None, k)[1]['estado'], 'presentado')  # la medición presentada que firma
         self.assertEqual(self.error(obra.curva_obra, self.contr, None, self.oid).status, 404)
         self.assertEqual(self.error(obra.listar_certificados, self.contr, None, self.oid).status, 404)
-        self.assertEqual(self.error(obra.ficha_certificado, self.contr, None, cid).status, 404)
+        self.assertEqual(self.llamar(obra.ficha_certificado, self.contr, None, None, cid)[1]['estado'], 'pendiente')
         self.assertEqual(self.error(obra.listar_modificaciones, self.contr, None, self.oid).status, 404)
         self.assertEqual(self.error(obra.curva_ideal_vigente, self.contr, None, self.oid).status, 404)
         self.assertEqual(self.error(obra.ver_legajo, self.contr, None, self.oid).status, 404)
@@ -1268,6 +1268,93 @@ class NotasYContratista(ObraBase):
         self.assertEqual([(r['accion'], r['motivo']) for r in reg2], [('emitido', None), ('anulado', 'El monto del mes estaba mal medido.')])
         with self.assertRaises(Exception):
             self.c.execute("DELETE FROM firmas_registro WHERE entidad='certificado'")
+
+class RolesDeObra(ObraBase):
+    """Etapa 2: roles de la cadena de obra limitados a sus obras, auditor de sólo lectura, firma del representante técnico,
+    validación de mediciones y alta de usuarios por el administrador de sistema."""
+    def setUp(self):
+        super().setUp()
+        self.jefe = self.usuario(self.cba, 'Jefe de inspección T', 'jefe_inspeccion')
+        self.aud = self.usuario(self.cba, 'Auditor T', 'auditor')
+        self.sis = self.usuario(self.cba, 'Administrador de sistema T', 'administrador')
+
+    def asignar(self, uid, oid=None):
+        return self.llamar(obra.asignar_equipo, self.admin, {'usuario_id': uid}, None, oid or self.oid)[1]
+
+    def test_solo_el_administrativo_asigna_el_equipo_y_solo_roles_de_la_cadena(self):
+        self.assertEqual(self.error(obra.asignar_equipo, self.admin, {'usuario_id': self.contr}, self.oid).status, 400)
+        self.assertEqual(self.error(obra.asignar_equipo, self.insp, {'usuario_id': self.jefe}, self.oid).status, 403)
+        self.assertEqual(self.asignar(self.jefe)['funcion'], 'jefe_inspeccion')
+
+    def test_los_roles_de_la_cadena_solo_ven_sus_obras(self):
+        otra = self.nueva_obra(inspector=None)
+        self.asignar(self.jefe)
+        ids = [o['id'] for o in self.llamar(obra.listar_obras, self.jefe)[1]]
+        self.assertEqual(ids, [self.oid])
+        self.llamar(obra.ficha_obra, self.jefe, None, None, self.oid)
+        self.assertEqual(self.error(obra.ficha_obra, self.jefe, None, otra).status, 404)
+
+    def test_el_auditor_lee_todo_y_no_escribe_ni_firma(self):
+        k = self.computo_certificado(c2=10)
+        self.llamar(obra.ficha_obra, self.aud, None, None, self.oid)
+        self.llamar(obra.listar_certificados, self.aud, None, None, self.oid)
+        self.assertEqual(self.error(obra.emitir_os, self.aud, {'asunto': 'Algo de prueba', 'texto': 'Texto suficiente de prueba'}, self.oid).status, 403)
+        self.assertEqual(self.error(obra.nuevo_computo, self.aud, None, self.oid).status, 403)
+        self.assertEqual(self.error(obra.validar_medicion, self.aud, None, k).status, 403)
+        self.assertEqual(self.error(obra.firmar_medicion_contratista, self.aud, {'accion': 'firma'}, k).status, 403)
+
+    def test_el_jefe_valida_una_medicion_presentada_una_sola_vez(self):
+        self.asignar(self.jefe)
+        k = self.computo(); self.guardar(k['id'], c2=5)
+        self.assertEqual(self.error(obra.validar_medicion, self.jefe, None, k['id']).status, 409)  # todavía es borrador
+        self.presentar(k['id'])
+        self.llamar(obra.validar_medicion, self.jefe, None, None, k['id'])
+        self.assertEqual(self.error(obra.validar_medicion, self.jefe, None, k['id']).status, 409)
+        self.assertEqual(self.error(obra.validar_medicion, self.insp, None, k['id']).status, 403)
+        reg = self.llamar(obra.ver_computo, self.insp, None, None, k['id'])[1]['registro']
+        self.assertEqual([(r['accion'], r['rol']) for r in reg], [('validada', 'jefe_inspeccion')])
+
+    def test_el_representante_firma_una_medicion_una_sola_vez(self):
+        k = self.computo(); self.guardar(k['id'], c2=5)
+        self.assertEqual(self.error(obra.firmar_medicion_contratista, self.contr, {'accion': 'firma'}, k['id']).status, 409)  # borrador
+        self.presentar(k['id'])
+        _, r = self.llamar(obra.firmar_medicion_contratista, self.contr, {'accion': 'firma'}, None, k['id'])
+        self.assertEqual(r['accion'], 'firma')
+        self.assertEqual(self.error(obra.firmar_medicion_contratista, self.contr, {'accion': 'firma'}, k['id']).status, 409)
+        otro = self.usuario(self.cba, 'Otro representante', 'contratista')
+        self.assertEqual(self.error(obra.firmar_medicion_contratista, otro, {'accion': 'firma'}, k['id']).status, 404)
+        self.assertEqual(self.error(obra.firmar_medicion_contratista, self.insp, {'accion': 'firma'}, k['id']).status, 403)
+
+    def test_el_representante_rechaza_un_certificado_con_motivo_y_queda_registrado(self):
+        k = self.computo_certificado(c2=10)
+        cid = self.c.execute('SELECT id FROM certificados WHERE computo_id=?', (k,)).fetchone()[0]
+        self.assertEqual(self.error(obra.firmar_certificado_contratista, self.contr, {'accion': 'rechazo'}, cid).status, 400)  # falta motivo
+        self.assertEqual(self.error(obra.firmar_certificado_contratista, self.contr, {'accion': 'rechazo', 'motivo': 'corto'}, cid).status, 400)
+        self.llamar(obra.firmar_certificado_contratista, self.contr, {'accion': 'rechazo', 'motivo': 'El monto no coincide con lo medido en obra.'}, None, cid)
+        reg = self.llamar(obra.ficha_certificado, self.auth, None, None, cid)[1]['registro']
+        rech = [r for r in reg if r['accion'] == 'rechazado']
+        self.assertEqual((rech[0]['rol'], rech[0]['motivo']), ('contratista', 'El monto no coincide con lo medido en obra.'))
+        self.assertEqual(self.error(obra.firmar_certificado_contratista, self.contr, {'accion': 'firma'}, cid).status, 409)
+
+    def test_firmas_contratista_lista_lo_que_falta_firmar(self):
+        k = self.computo_certificado(c2=10)
+        cid = self.c.execute('SELECT id FROM certificados WHERE computo_id=?', (k,)).fetchone()[0]
+        items = self.llamar(obra.firmas_contratista, self.contr, None, None, self.oid)[1]
+        self.assertEqual({(i['entidad'], i['firmado']) for i in items}, {('computo', None), ('certificado', None)})
+        self.llamar(obra.firmar_certificado_contratista, self.contr, {'accion': 'firma'}, None, cid)
+        items = self.llamar(obra.firmas_contratista, self.contr, None, None, self.oid)[1]
+        self.assertEqual({(i['entidad'], i['firmado']) for i in items}, {('computo', None), ('certificado', 'firmado')})
+
+    def test_el_administrador_de_sistema_da_de_alta_usuarios_y_no_firma(self):
+        body = {'nombre': 'Analista de certificaciones nueva', 'login': 'analista.nueva', 'password': 'clave-de-prueba-2', 'rol': 'analista_certificaciones'}
+        self.assertEqual(self.error(core.alta_usuario, self.admin, body).status, 403)  # el administrativo no da de alta usuarios
+        r = self.llamar(core.alta_usuario, self.sis, body)[1]
+        self.assertEqual((r['login'], r['rol']), ('analista.nueva', 'analista_certificaciones'))
+        self.assertEqual(self.error(core.alta_usuario, self.sis, body).status, 409)  # usuario repetido
+        self.assertEqual(self.error(core.alta_usuario, self.sis, dict(body, login='otro.usuario', rol='vecino')).status, 400)
+        self.assertEqual(self.error(core.alta_usuario, self.sis, dict(body, login='otro.usuario', password='corta')).status, 400)
+        self.assertEqual(self.error(obra.emitir_os, self.sis, {'asunto': 'Algo de prueba', 'texto': 'Texto suficiente de prueba'}, self.oid).status, 403)
+
 
 class LibroDeObra(ObraBase):
     def os(self, asunto='Presentar el plan de trabajos', texto='Se solicita presentar el plan de trabajos actualizado.', uid=None):
