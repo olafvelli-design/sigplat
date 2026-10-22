@@ -60,6 +60,7 @@ PERMISOS = {
     'gestionar_usuarios': {'administrador'},  # administrador de sistema: usuarios; no firma actos
     'medir': {'inspector'},
     'emitir_certificado': {'inspector'},  # el inspector mide y certifica; otra persona (la autoridad) autoriza
+    'aprobar_certificado': {'jefe_certificaciones'},  # aprueba o devuelve; no puede ser quien emitió
     'autorizar_certificado': {'autoridad'},
     'anular_certificado': {'inspector', 'administrativo'},
     'asignar_expediente': {'administrativo'},

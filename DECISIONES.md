@@ -16,6 +16,7 @@ Registro de decisiones tomadas y de las que quedan a confirmar. Las confirmadas 
 ## Confirmadas en la etapa 2
 
 - **El inspector emite el certificado; el analista de certificaciones no emite.** Así lo confirmó el responsable. La emisión sigue en el permiso `emitir_certificado`, que sólo tiene el inspector. (Confirmado, 2026-10)
+- **Circuito del certificado** (confirmado por el responsable al definir el paso del jefe): emite el inspector → el jefe de certificaciones aprueba o devuelve (con motivo) → la autoridad autoriza. Quien emite no aprueba ni autoriza; quien aprueba no autoriza. Un certificado devuelto se anula (si es el último) y el inspector emite uno nuevo. Estados: pendiente, aprobado, devuelto, autorizado, anulado. Un certificado que no está autorizado se imprime como "NO AUTORIZADO".
 
 ## Etapa 2 (implementada, a confirmar)
 

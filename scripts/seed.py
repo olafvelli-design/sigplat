@@ -262,6 +262,7 @@ def sembrar_obra(s, simples):
         _, cert = obra.emitir_certificado(c, ctx({'computo_id': v['id']}, insp), oid)  # el inspector mide y certifica
         if k < 3:
             core.CLOCK['now'] = en(m(k + 1), 6, 15)
+            obra.aprobar_certificado(c, ctx(None, simples['jefe_certificaciones']), cert['id'])  # el jefe de certificaciones aprueba o devuelve
             obra.autorizar_certificado(c, ctx({}, autoridad), cert['id'])  # y otra persona autoriza
             core.CLOCK['now'] = en(m(k + 1), 7, 9)
             obra.asignar_expediente(c, ctx({'expediente': f'0045-0{12340 + k}/2026'}, admin), cert['id'])

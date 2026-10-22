@@ -294,7 +294,7 @@ CREATE TABLE IF NOT EXISTS certificados (
     numero             INTEGER NOT NULL,
     tipo               TEXT NOT NULL CHECK (tipo IN ('parcial','final')),
     computo_id         INTEGER NOT NULL REFERENCES computos(id),
-    estado             TEXT NOT NULL CHECK (estado IN ('pendiente','autorizado','anulado')),
+    estado             TEXT NOT NULL CHECK (estado IN ('pendiente','aprobado','devuelto','autorizado','anulado')),  -- pendiente: espera al jefe; aprobado: espera a la autoridad
     monto_cent         INTEGER NOT NULL,                  -- importe del mes
     liquidacion_json   TEXT NOT NULL,
     expediente_externo TEXT,
@@ -304,6 +304,8 @@ CREATE TABLE IF NOT EXISTS certificados (
     fecha_autorizacion TEXT,
     autorizado_por     INTEGER REFERENCES usuarios(id),
     autorizado_at      TEXT,
+    aprobado_por       INTEGER REFERENCES usuarios(id),
+    aprobado_at        TEXT,
     vence_at           TEXT,
     anulado_por        INTEGER REFERENCES usuarios(id),
     anulado_at         TEXT,

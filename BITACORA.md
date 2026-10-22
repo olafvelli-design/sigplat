@@ -39,3 +39,19 @@
 **Resultado**: **160 OK**. Probado en el navegador: la contratista ve sus firmas pendientes; el jefe ve "Validar 4 medición(es)" y valida una medición.
 
 **Sin implementar** (ver DECISIONES.md): emisión por el analista, aprobación del jefe de certificaciones, certificación del director, multas y reclamos, redeterminaciones y recepciones, y dos roles por persona.
+
+## Etapa 2b · Circuito del certificado (jefe de certificaciones)
+**Decisión confirmada**: emite el inspector; aprueba o devuelve el jefe de certificaciones; autoriza la autoridad.
+
+**Cambió**
+- `schema.sql`: estados `aprobado` y `devuelto` en certificados; columnas `aprobado_por` y `aprobado_at`.
+- `core.py`: permiso `aprobar_certificado` (sólo jefe de certificaciones).
+- `obra.py`: `aprobar_certificado` y `devolver_certificado` (motivo de 10 letras o más); `autorizar_certificado` exige estado aprobado y que no lo hayan emitido ni aprobado; la anulación admite pendiente, aprobado y devuelto; contadores de aprobados y devueltos en el resumen; el certificado muestra al jefe entre las firmas.
+- `seed.py`: el jefe aprueba los certificados antes de que la autoridad los autorice.
+- `index.html`: botones Aprobar y Devolver en el certificado; la autoridad ve los aprobados; Mi día para el jefe y para el inspector con certificados devueltos.
+- Tests: 5 nuevas en `CircuitoCertificado`. Las pruebas de autorización pasan por la aprobación (`autorizar_cert`); la obra de prueba queda asignada al jefe.
+
+**Resultado**: **165 OK**. Probado en el navegador como jefe de certificaciones: "Aprobar o devolver 1 certificado(s)", con los botones en el certificado.
+
+**Sin implementar**: la certificación final del director, las multas y reclamos del jefe de inspección, las redeterminaciones y recepciones, y dos roles por persona.
+

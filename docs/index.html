@@ -1113,13 +1113,15 @@ function tareasDeObra(o) {
     if (r.certificados_pendientes) t.push(['certificados', `Asignar expediente a ${r.certificados_pendientes} certificado(s)`]);
   }
   if (rolEn('autoridad')) {
-    if (r.certificados_pendientes) t.push(['certificados', `Autorizar ${r.certificados_pendientes} certificado(s)`]);
+    if (r.certificados_aprobados) t.push(['certificados', `Autorizar ${r.certificados_aprobados} certificado(s) aprobado(s)`]);
     if (r.modificacion_pendiente) t.push(['modificaciones', 'Autorizar una modificación del cronograma']);
   }
   if (rolEn('contratista') && r.os_sin_responder) t.push(['libro', `Responder ${r.os_sin_responder} orden(es) de servicio`]);
   if (rolEn('contratista') && r.notas_sin_responder) t.push(['libro', `${r.notas_sin_responder} nota(s) de pedido esperan respuesta`]);
   if (rolEn('contratista') && r.firmas_pendientes) t.push(['libro', `Firmar ${r.firmas_pendientes} medición(es) o certificado(s)`]);
   if (rolEn('jefe_inspeccion') && r.mediciones_sin_validar) t.push(['computo', `Validar ${r.mediciones_sin_validar} medición(es)`]);
+  if (rolEn('jefe_certificaciones') && r.certificados_pendientes) t.push(['certificados', `Aprobar o devolver ${r.certificados_pendientes} certificado(s)`]);
+  if (rolEn('inspector') && soyInsp && r.certificados_devueltos) t.push(['certificados', `Anular y emitir de nuevo ${r.certificados_devueltos} certificado(s) devuelto(s)`]);
   if (rolEn('inspector') && soyInsp && r.notas_sin_responder) t.push(['libro', `Responder ${r.notas_sin_responder} nota(s) de pedido`]);
   return t;
 }
@@ -1799,7 +1801,7 @@ async function vistaObras() {
       <span class="meta">${rolEn('contratista') ? '' : `Comprometido a la fecha ${pctTxt(r.avance_ideal_pct)} · Certificado ${pctTxt(r.avance_certificado_pct)} · `}${r.vencida ? 'Plazo vencido' : 'Quedan ' + r.dias_restantes + ' días'}</span>
       ${r.mes_a_medir && rolEn('inspector') ? `<span class="meta"><b>Para medir: ${mesTxt(r.mes_a_medir)}</b></span>` : ''}
       ${rolEn('inspector') && r.computos_sin_certificado ? `<span class="meta"><b>${r.computos_sin_certificado} cómputo(s) esperan que los certifiques</b></span>` : ''}
-      ${rolEn('autoridad') && r.certificados_pendientes ? `<span class="meta"><b>${r.certificados_pendientes} certificado(s) esperan autorización</b></span>` : ''}
+      ${rolEn('autoridad') && r.certificados_aprobados ? `<span class="meta"><b>${r.certificados_aprobados} certificado(s) esperan autorización</b></span>` : ''}
       ${rolEn('contratista') && r.os_sin_responder ? `<span class="meta"><b>${r.os_sin_responder} orden(es) de servicio sin responder</b></span>` : ''}
       ${rolEn('inspector') && (r.documentos_por_revisar || r.recepciones_por_revisar) ? `<span class="meta"><b>Para revisar: ${r.documentos_por_revisar} documento(s) y ${r.recepciones_por_revisar} planilla(s) de hormigón</b></span>` : ''}</button></li>`;
   }).join('') : '<li class="vacio">No hay obras asignadas a tu usuario.</li>';
@@ -1857,7 +1859,9 @@ function pendientesObra(r, f) {
   if (rolEn('contratista') && r.os_sin_responder) items.push(['libro', `${r.os_sin_responder} orden(es) de servicio sin responder`]);
   if (rolEn('administrativo') && f && f.legajo_estado === 'en_armado') items.push(['legajo', 'El legajo está en armado: completarlo y publicarlo']);
   if (rolEn('administrativo') && r.certificados_pendientes) items.push(['certificados', `${r.certificados_pendientes} certificado(s) pendientes: asignar expediente`]);
-  if (rolEn('autoridad') && r.certificados_pendientes) items.push(['certificados', `${r.certificados_pendientes} certificado(s) esperan autorización`]);
+  if (rolEn('inspector') && r.certificados_devueltos) items.push(['certificados', `${r.certificados_devueltos} certificado(s) devuelto(s): anular y emitir de nuevo`]);
+  if (rolEn('autoridad') && r.certificados_aprobados) items.push(['certificados', `${r.certificados_aprobados} certificado(s) esperan autorización`]);
+  if (rolEn('jefe_certificaciones') && r.certificados_pendientes) items.push(['certificados', `${r.certificados_pendientes} certificado(s) esperan tu aprobación`]);
   if (rolEn('autoridad') && r.modificacion_pendiente) items.push(['modificaciones', 'Una modificación de curva espera autorización']);
   return items.length ? `<h3>Para atender</h3><div class="chips">${items.map(([k, t]) => `<button type="button" class="chip" data-ir="${k}">${esc(t)}</button>`).join('')}</div>` : '';
 }
@@ -1932,7 +1936,8 @@ function csvComputo(k, f) {
 }
 
 // ---------- Certificados (SIGO) ----------
-const ESTADO_CERT = { pendiente: ['Pendiente de autorización', 'aviso'], autorizado: ['Autorizado', 'ok'], anulado: ['Anulado', 'malo'] };
+const ESTADO_CERT = { pendiente: ['Pendiente de aprobación', 'aviso'], aprobado: ['Aprobado: espera autorización', 'info'], devuelto: ['Devuelto al inspector', 'malo'],
+  autorizado: ['Autorizado', 'ok'], anulado: ['Anulado', 'malo'] };
 
 function htmlCertificado(c) {
   const l = c.liquidacion, o = c.obra, [txtEstado, tipoEstado] = ESTADO_CERT[c.estado];
@@ -1957,7 +1962,7 @@ function htmlCertificado(c) {
     ${c.observaciones ? `<p class="small">Observaciones: ${esc(c.observaciones)}</p>` : ''}
     <p class="small">Expediente: ${c.expediente_externo ? esc(c.expediente_externo) : 'sin asignar'} · ${c.fecha_autorizacion ? 'Autorizado el ' + dia(c.fecha_autorizacion) + ' · Vence el ' + dia(c.vence_at) : 'Todavía no autorizado'}</p>
     <div class="firmas">${c.firmas.map(f => `<div><div class="linea"></div><b>${esc(f.cargo)}</b><br>${f.nombre ? esc(f.nombre) + '<br>' + fmt(f.fecha) + ' (simulado)' : '<i>Pendiente</i>'}</div>`).join('')}</div>
-    ${c.registro && c.registro.length ? `<p class="small"><b>Registro de firmas</b></p><ul class="lista-chequeo">${c.registro.map(r => `<li>${esc({ emitido: 'Emitido', autorizado: 'Autorizado', anulado: 'Anulado' }[r.accion] || r.accion)} por ${esc(r.nombre || '')} (${esc(r.rol)}), ${fmt(r.fecha)}${r.motivo ? ' · Motivo: ' + esc(r.motivo) : ''}</li>`).join('')}</ul>` : ''}
+    ${c.registro && c.registro.length ? `<p class="small"><b>Registro de firmas</b></p><ul class="lista-chequeo">${c.registro.map(r => `<li>${esc({ emitido: 'Emitido', aprobado: 'Aprobado', devuelto: 'Devuelto', autorizado: 'Autorizado', anulado: 'Anulado', validada: 'Validada', firmado: 'Firmado', rechazado: 'Rechazado' }[r.accion] || r.accion)} por ${esc(r.nombre || '')} (${esc(r.rol)}), ${fmt(r.fecha)}${r.motivo ? ' · Motivo: ' + esc(r.motivo) : ''}</li>`).join('')}</ul>` : ''}
     <p class="small">${esc(c.nota_firmas)} La liquidación es simplificada: el certificado real tiene 17 conceptos.</p></div>`;
 }
 
@@ -1975,20 +1980,32 @@ async function tabCertificados(f) {
     <h3>Certificados (${lista.length})</h3>
     ${lista.length ? lista.slice().reverse().map(c => `<div class="tarjeta"><div class="row"><b>Certificado ${c.tipo === 'final' ? 'final' : 'parcial'} N° ${c.numero}</b><span class="small">${mesTxt(c.mes)}</span>${etiqueta(ESTADO_CERT[c.estado][0], ESTADO_CERT[c.estado][1])}</div>
       <div class="small">Importe del mes ${pesos(c.monto_cent)} · A abonar ${pesos(c.a_abonar_cent)}<br>Expediente: ${c.expediente_externo ? esc(c.expediente_externo) : 'sin asignar'}${c.vence_at ? ' · Vence el ' + dia(c.vence_at) : ''}</div>
-      <div class="row"><button type="button" class="${rol === 'autoridad' && c.estado === 'pendiente' ? '' : 'sec'}" data-cver="${c.id}">${rol === 'autoridad' && c.estado === 'pendiente' ? 'Ver y autorizar' : 'Ver el certificado'}</button></div></div>`).join('')
+      <div class="row"><button type="button" class="${(rol === 'autoridad' && c.estado === 'aprobado') || (rol === 'jefe_certificaciones' && c.estado === 'pendiente') ? '' : 'sec'}" data-cver="${c.id}">${rol === 'autoridad' && c.estado === 'aprobado' ? 'Ver y autorizar' : rol === 'jefe_certificaciones' && c.estado === 'pendiente' ? 'Revisar y aprobar' : 'Ver el certificado'}</button></div></div>`).join('')
       : '<p class="vacio small">Todavía no hay certificados.</p>'}
     <div id="detCert" aria-live="polite"></div>`;
   const abrir = async cid => {
     const c = await api('GET', '/certificados/' + cid);
-    const esUltimoPendiente = c.estado === 'pendiente' && c.numero === ultimoNumero;
+    const esUltimoPendiente = ['pendiente', 'aprobado', 'devuelto'].includes(c.estado) && c.numero === ultimoNumero;
     $('#detCert').innerHTML = `<h3>Detalle</h3>${htmlCertificado(c)}<div id="certMsg"></div>
       <div class="row"><button type="button" class="sec" id="cImprimir">🖨 Imprimir</button>
-        ${rol === 'autoridad' && c.estado === 'pendiente' ? '<button type="button" id="cAutorizar">Autorizar certificado</button>' : ''}
+        ${rol === 'jefe_certificaciones' && c.estado === 'pendiente' ? '<button type="button" id="cAprobar">Aprobar</button><button type="button" class="sec" id="cDevolver">Devolver al inspector…</button>' : ''}
+        ${rol === 'autoridad' && c.estado === 'aprobado' ? '<button type="button" id="cAutorizar">Autorizar certificado</button>' : ''}
         ${rol === 'administrativo' && c.estado !== 'anulado' ? '<button type="button" class="sec" id="cExpediente">Asignar expediente</button>' : ''}
         ${(rol === 'administrativo' || soyInsp) && esUltimoPendiente ? '<button type="button" class="sec" id="cAnular">Anular</button>' : ''}</div>`;
     $('#detCert').scrollIntoView({ block: 'start', behavior: 'smooth' });
     const refrescar = async txt => { toast(txt); S.obra.certAbrir = cid; await vistaObra(); };
     $('#cImprimir').onclick = () => { $('#certImpresion').innerHTML = htmlCertificado(c); window.print(); };
+    if ($('#cAprobar')) $('#cAprobar').onclick = async () => {
+      const r = await modal({ titulo: 'Aprobar el certificado', html: `<p>Vas a aprobar el <b>certificado N° ${c.numero}</b>. Queda esperando la autorización de la autoridad. Quien lo emitió no puede aprobarlo.</p>`,
+        botones: [{ id: 'no', texto: 'Volver', cls: 'sec' }, { id: 'ok', texto: 'Aprobar' }] });
+      if (!r || r.id !== 'ok') return;
+      try { await api('POST', `/certificados/${cid}/aprobar`, {}); await refrescar('Certificado aprobado: pasa a la autoridad'); } catch (err) { mensaje($('#certMsg'), err.message, false); }
+    };
+    if ($('#cDevolver')) $('#cDevolver').onclick = async () => {
+      const m = await pedirTexto({ titulo: 'Devolver el certificado', etiqueta: 'Motivo de la devolución (queda registrado)', minimo: 10, boton: 'Devolver al inspector' });
+      if (!m) return;
+      try { await api('POST', `/certificados/${cid}/devolver`, { motivo: m }); await refrescar('Certificado devuelto al inspector'); } catch (err) { mensaje($('#certMsg'), err.message, false); }
+    };
     if ($('#cAutorizar')) $('#cAutorizar').onclick = async () => {
       const hoy = new Date().toISOString().slice(0, 10);
       const r = await modal({ titulo: 'Autorizar el certificado', html: `<p>Vas a autorizar el <b>certificado N° ${c.numero}</b>. Desde la fecha de autorización corre su vencimiento y <b>ya no se podrá anular</b>.</p>

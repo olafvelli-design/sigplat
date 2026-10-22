@@ -529,6 +529,7 @@ class ObraBase(Base):
         self.replanteo = self.hoy - timedelta(days=75)
         self.m0 = obra.mes_de(self.replanteo)
         self.m1, self.m2 = obra.sumar_meses(self.m0, 1), obra.sumar_meses(self.m0, 2)
+        self.jefe_cert = self.usuario(self.cba, 'Jefe de certificaciones T', 'jefe_certificaciones')
         self.oid = self.nueva_obra()
         self.ids = {r['nro']: r['id'] for r in self.c.execute('SELECT id, nro FROM items_obra WHERE obra_id=?', (self.oid,))}
 
@@ -541,6 +542,7 @@ class ObraBase(Base):
                               (replanteo or self.replanteo).strftime('%Y-%m-%d'), plazo, items, ideal, contratista_id=self.contr,
                               inspector_id=self.insp if inspector == 'por_defecto' else inspector, **kw)
         self.c.commit()
+        self.llamar(obra.asignar_equipo, self.admin, {'usuario_id': self.jefe_cert}, None, oid)  # el jefe de certificaciones revisa las obras del ente de prueba
         return oid
 
     def computo(self, oid=None, uid=None):
@@ -554,6 +556,15 @@ class ObraBase(Base):
 
     def presentar(self, kid):
         return self.llamar(obra.presentar_computo, self.insp, None, None, kid)[1]
+
+    def aprobar_cert(self, cid, uid=None):
+        return self.llamar(obra.aprobar_certificado, uid or self.jefe_cert, None, None, cid)[1]
+
+    def autorizar_cert(self, quien, body, cid):
+        """El jefe aprueba el certificado (si todavía está pendiente) y después lo autoriza quien corresponda."""
+        if self.c.execute('SELECT estado FROM certificados WHERE id=?', (cid,)).fetchone()[0] == 'pendiente':
+            self.aprobar_cert(cid)
+        return self.llamar(obra.autorizar_certificado, quien, body, None, cid)
 
     def certificado_directo(self, kid, oid=None):
         """Emite el certificado de un cómputo presentado, como lo haría el administrativo."""
@@ -785,25 +796,25 @@ class Certificados(ObraBase):
 
     def test_la_autoridad_autoriza_y_corre_el_vencimiento(self):
         cert = self.emitir(self.presentado())
-        aut = self.llamar(obra.autorizar_certificado, self.auth, {}, None, cert['id'])[1]
+        aut = self.autorizar_cert(self.auth, {}, cert['id'])[1]
         self.assertEqual((aut['estado'], aut['leyenda']), ('autorizado', None))
         self.assertEqual(aut['fecha_autorizacion'], self.hoy.strftime('%Y-%m-%d'))
         self.assertEqual(aut['vence_at'], (self.hoy + timedelta(days=30)).strftime('%Y-%m-%d'))
-        self.assertEqual(aut['firmas'][1]['nombre'], 'Autoridad T')
+        self.assertEqual(aut['firmas'][2]['nombre'], 'Autoridad T')  # inspector, jefe de certificaciones, autoridad
         with self.assertRaises(core.ApiError) as e:
-            self.llamar(obra.autorizar_certificado, self.auth, {}, None, cert['id'])
+            self.autorizar_cert(self.auth, {}, cert['id'])
         self.assertEqual(e.exception.status, 409)
 
     def test_quien_emitio_no_puede_autorizar_y_solo_la_autoridad_autoriza(self):
         cert = self.emitir(self.presentado())
         for quien in (self.admin, self.insp, self.contr):
             with self.assertRaises(core.ApiError) as e:
-                self.llamar(obra.autorizar_certificado, quien, {}, None, cert['id'])
+                self.autorizar_cert(quien, {}, cert['id'])
             self.assertEqual(e.exception.status, 403)
         self.c.execute('UPDATE certificados SET emitido_por=? WHERE id=?', (self.auth, cert['id']))  # la misma persona emite y autoriza
         self.c.commit()
         with self.assertRaises(core.ApiError) as e:
-            self.llamar(obra.autorizar_certificado, self.auth, {}, None, cert['id'])
+            self.autorizar_cert(self.auth, {}, cert['id'])
         self.assertEqual(e.exception.status, 403)
         self.assertIn('no puede autorizarlo', e.exception.msg)
 
@@ -811,7 +822,7 @@ class Certificados(ObraBase):
         cert = self.emitir(self.presentado())
         for fecha in ((self.hoy + timedelta(days=2)).strftime('%Y-%m-%d'), (self.hoy - timedelta(days=3)).strftime('%Y-%m-%d'), '2026-13-40'):
             with self.assertRaises(core.ApiError) as e:
-                self.llamar(obra.autorizar_certificado, self.auth, {'fecha_autorizacion': fecha}, None, cert['id'])
+                self.autorizar_cert(self.auth, {'fecha_autorizacion': fecha}, cert['id'])
             self.assertEqual(e.exception.status, 400, fecha)
 
     def test_solo_se_anula_el_ultimo_certificado_si_esta_pendiente(self):
@@ -829,7 +840,7 @@ class Certificados(ObraBase):
 
     def test_un_certificado_autorizado_ya_no_se_anula(self):
         cert = self.emitir(self.presentado())
-        self.llamar(obra.autorizar_certificado, self.auth, {}, None, cert['id'])
+        self.autorizar_cert(self.auth, {}, cert['id'])
         with self.assertRaises(core.ApiError) as e:
             self.llamar(obra.anular_certificado, self.admin, {'motivo': 'Quiero anularlo'}, None, cert['id'])
         self.assertEqual(e.exception.status, 409)
@@ -1257,12 +1268,12 @@ class NotasYContratista(ObraBase):
     def test_el_registro_de_firmas_guarda_quien_rol_cuando_y_motivo(self):
         k1 = self.computo_certificado(c2=10)  # emitido por el inspector y autorizado por la autoridad
         c1 = self.cert_de(k1)
-        self.llamar(obra.autorizar_certificado, self.auth, {}, None, c1)
+        self.autorizar_cert(self.auth, {}, c1)
         k2 = self.computo(); self.guardar(k2['id'], c2=5); self.presentar(k2['id'])
         c2 = self.certificado_directo(k2['id'])['id']
         self.llamar(obra.anular_certificado, self.insp, {'motivo': 'El monto del mes estaba mal medido.'}, None, c2)
         reg = self.llamar(obra.ficha_certificado, self.auth, None, None, c1)[1]['registro']
-        self.assertEqual([(r['accion'], r['rol']) for r in reg], [('emitido', 'inspector'), ('autorizado', 'autoridad')])
+        self.assertEqual([(r['accion'], r['rol']) for r in reg], [('emitido', 'inspector'), ('aprobado', 'jefe_certificaciones'), ('autorizado', 'autoridad')])
         self.assertTrue(all(r['fecha'] and r['nombre'] for r in reg))
         reg2 = self.llamar(obra.ficha_certificado, self.insp, None, None, c2)[1]['registro']
         self.assertEqual([(r['accion'], r['motivo']) for r in reg2], [('emitido', None), ('anulado', 'El monto del mes estaba mal medido.')])
@@ -1354,6 +1365,55 @@ class RolesDeObra(ObraBase):
         self.assertEqual(self.error(core.alta_usuario, self.sis, dict(body, login='otro.usuario', rol='vecino')).status, 400)
         self.assertEqual(self.error(core.alta_usuario, self.sis, dict(body, login='otro.usuario', password='corta')).status, 400)
         self.assertEqual(self.error(obra.emitir_os, self.sis, {'asunto': 'Algo de prueba', 'texto': 'Texto suficiente de prueba'}, self.oid).status, 403)
+
+
+class CircuitoCertificado(ObraBase):
+    """El inspector emite, el jefe de certificaciones aprueba o devuelve, y la autoridad autoriza. Quien emite no aprueba."""
+    def emitido(self):
+        k = self.computo(); self.guardar(k['id'], c2=10); self.presentar(k['id'])
+        return self.certificado_directo(k['id'])
+
+    def test_el_jefe_aprueba_y_recien_entonces_la_autoridad_autoriza(self):
+        cert = self.emitido()
+        self.assertEqual(self.error(obra.autorizar_certificado, self.auth, {}, cert['id']).status, 409)  # todavía pendiente
+        ap = self.llamar(obra.aprobar_certificado, self.jefe_cert, None, None, cert['id'])[1]
+        self.assertEqual((ap['estado'], ap['leyenda']), ('aprobado', 'NO AUTORIZADO'))
+        self.assertEqual(self.error(obra.aprobar_certificado, self.jefe_cert, None, cert['id']).status, 409)  # ya aprobado
+        self.assertEqual(self.error(obra.autorizar_certificado, self.jefe_cert, {}, cert['id']).status, 403)  # el jefe no autoriza
+        aut = self.llamar(obra.autorizar_certificado, self.auth, {}, None, cert['id'])[1]
+        self.assertEqual(aut['estado'], 'autorizado')
+
+    def test_solo_el_jefe_de_certificaciones_aprueba_o_devuelve(self):
+        cert = self.emitido()
+        for quien in (self.insp, self.auth, self.admin):
+            self.assertEqual(self.error(obra.aprobar_certificado, quien, None, cert['id']).status, 403)
+            self.assertEqual(self.error(obra.devolver_certificado, quien, {'motivo': 'Motivo suficiente de prueba'}, cert['id']).status, 403)
+
+    def test_quien_emitio_no_aprueba_aunque_tenga_el_rol(self):
+        cert = self.emitido()
+        self.c.execute('UPDATE certificados SET emitido_por=? WHERE id=?', (self.jefe_cert, cert['id']))
+        self.c.commit()
+        self.assertEqual(self.error(obra.aprobar_certificado, self.jefe_cert, None, cert['id']).status, 403)
+
+    def test_el_jefe_devuelve_con_motivo_y_el_inspector_reemite(self):
+        cert = self.emitido()
+        self.assertEqual(self.error(obra.devolver_certificado, self.jefe_cert, {'motivo': 'corto'}, cert['id']).status, 400)
+        dev = self.llamar(obra.devolver_certificado, self.jefe_cert, {'motivo': 'El monto no coincide con el cómputo presentado.'}, None, cert['id'])[1]
+        self.assertEqual(dev['estado'], 'devuelto')
+        self.assertEqual(self.error(obra.autorizar_certificado, self.auth, {}, cert['id']).status, 409)
+        self.assertEqual(self.error(obra.emitir_certificado, self.insp, {'computo_id': self.c.execute('SELECT computo_id FROM certificados WHERE id=?', (cert['id'],)).fetchone()[0]}, self.oid).status, 409)  # todavía hay uno vigente
+        self.llamar(obra.anular_certificado, self.insp, {'motivo': 'Se devolvió: se anula y se emite de nuevo.'}, None, cert['id'])
+        k = self.c.execute('SELECT computo_id FROM certificados WHERE id=?', (cert['id'],)).fetchone()[0]
+        nuevo = self.certificado_directo(k)
+        self.assertEqual(nuevo['estado'], 'pendiente')
+        reg = self.llamar(obra.ficha_certificado, self.auth, None, None, cert['id'])[1]['registro']
+        self.assertIn(('devuelto', 'jefe_certificaciones', 'El monto no coincide con el cómputo presentado.'),
+                      [(r['accion'], r['rol'], r['motivo']) for r in reg])
+
+    def test_un_certificado_aprobado_no_se_devuelve_ni_se_aprueba_dos_veces(self):
+        cert = self.emitido()
+        self.llamar(obra.aprobar_certificado, self.jefe_cert, None, None, cert['id'])
+        self.assertEqual(self.error(obra.devolver_certificado, self.jefe_cert, {'motivo': 'Motivo suficiente de prueba'}, cert['id']).status, 409)
 
 
 class LibroDeObra(ObraBase):

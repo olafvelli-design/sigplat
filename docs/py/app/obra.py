@@ -617,6 +617,8 @@ def _resumen(c, obra, items=None):
             'modificacion_pendiente': c.execute("SELECT 1 FROM curvas_ideal WHERE obra_id=? AND estado='pendiente'", (obra['id'],)).fetchone() is not None,
             'curva_vigente': (_curva_vigente(c, obra['id']) or {}).get('nombre'),
             'computos_sin_certificado': sin_certificado, 'certificados_pendientes': cert_pendientes,
+            'certificados_aprobados': c.execute("SELECT COUNT(*) FROM certificados WHERE obra_id=? AND estado='aprobado'", (obra['id'],)).fetchone()[0],
+            'certificados_devueltos': c.execute("SELECT COUNT(*) FROM certificados WHERE obra_id=? AND estado='devuelto'", (obra['id'],)).fetchone()[0],
             'os_sin_responder': os_sin_responder, 'documentos_por_revisar': docs_por_revisar, 'recepciones_por_revisar': recepciones_por_revisar,
             'fecha_fin': fin.strftime('%Y-%m-%d'), 'dias_restantes': (fin - h).days, 'vencida': h > fin,
             'plazo_cert_vencida_activo': _plazo_vencida_activo(c, obra['id']),
@@ -775,9 +777,10 @@ def _ficha_certificado(c, obra, cert):
         obra={'id': obra['id'], 'denominacion': obra['denominacion'], 'contratista': obra['contratista'], 'fecha_replanteo': obra['fecha_replanteo'],
               'plazo_dias': obra['plazo_dias']},
         liquidacion=json.loads(cert['liquidacion_json'] or '{}'), observaciones=cert['observaciones'],
-        leyenda={'pendiente': 'NO AUTORIZADO', 'anulado': 'ANULADO'}.get(cert['estado']), emitido_at=cert['emitido_at'],
+        leyenda={'pendiente': 'NO AUTORIZADO', 'aprobado': 'NO AUTORIZADO', 'devuelto': 'NO AUTORIZADO', 'anulado': 'ANULADO'}.get(cert['estado']), emitido_at=cert['emitido_at'],
         motivo_anulacion=cert['motivo_anulacion'],
         firmas=[{'cargo': 'Inspector de obra (mide y certifica)', 'nombre': _nombre(c, cert['emitido_por']), 'fecha': cert['emitido_at']},
+                {'cargo': 'Jefe de certificaciones (aprueba)', 'nombre': _nombre(c, cert['aprobado_por']), 'fecha': cert['aprobado_at']},
                 {'cargo': 'Autoridad (autoriza)', 'nombre': _nombre(c, cert['autorizado_por']), 'fecha': cert['autorizado_at']}],
         nota_firmas=f'Firmas simuladas: el certificado real lleva {FIRMAS_REALES}.', registro=_firmas(c, 'certificado', cert['id']))
     return d
@@ -796,13 +799,41 @@ def listar_certificados(c, ctx, oid):
     return 200, [_resumen_certificado(c, core.fila(r)) for r in c.execute('SELECT * FROM certificados WHERE obra_id=? ORDER BY numero, id', (oid,))]
 
 
+def _resolver_certificado(c, ctx, cid):
+    u, ente, obra, cert = _cert_para(c, ctx, cid, 'aprobar_certificado')
+    if cert['estado'] != 'pendiente':
+        raise ApiError(409, f'el certificado está {cert["estado"]}: sólo se aprueba o devuelve uno pendiente de revisión')
+    if u['id'] == cert['emitido_por']:
+        raise ApiError(403, 'quien emite un certificado no puede aprobarlo ni devolverlo')
+    return u, ente, obra, cert
+
+
+def aprobar_certificado(c, ctx, cid):
+    """El jefe de certificaciones aprueba el certificado emitido por el inspector. Queda esperando la autorización de la autoridad."""
+    u, ente, obra, cert = _resolver_certificado(c, ctx, cid)
+    c.execute("UPDATE certificados SET estado='aprobado', aprobado_por=?, aprobado_at=? WHERE id=?", (u['id'], core.iso(core.now()), cid))
+    _registrar_firma(c, ente['id'], 'certificado', cid, 'aprobado', u)
+    core.audit(c, ente['id'], 'certificado', cid, 'aprobado', u['id'], {'numero': cert['numero']})
+    return 200, _ficha_certificado(c, obra, core.fila(c.execute('SELECT * FROM certificados WHERE id=?', (cid,)).fetchone()))
+
+
+def devolver_certificado(c, ctx, cid):
+    """El jefe de certificaciones devuelve el certificado al inspector con un motivo. El inspector lo anula (si es el último) y emite uno nuevo."""
+    u, ente, obra, cert = _resolver_certificado(c, ctx, cid)
+    motivo = core.texto(ctx['body'].get('motivo'), 10, 500, 'motivo de la devolución')
+    c.execute("UPDATE certificados SET estado='devuelto' WHERE id=?", (cid,))
+    _registrar_firma(c, ente['id'], 'certificado', cid, 'devuelto', u, motivo)
+    core.audit(c, ente['id'], 'certificado', cid, 'devuelto', u['id'], {'numero': cert['numero'], 'motivo': motivo})
+    return 200, _ficha_certificado(c, obra, core.fila(c.execute('SELECT * FROM certificados WHERE id=?', (cid,)).fetchone()))
+
+
 def autorizar_certificado(c, ctx, cid):
     """La autoridad con rol habilitante autoriza: desde esa fecha corre el vencimiento y ya no se puede anular."""
     u, ente, obra, cert = _cert_para(c, ctx, cid, 'autorizar_certificado')
-    if cert['estado'] != 'pendiente':
-        raise ApiError(409, f'el certificado está {cert["estado"]}: sólo se autoriza uno pendiente')
-    if cert['emitido_por'] == u['id']:
-        raise ApiError(403, 'quien emite un certificado no puede autorizarlo')
+    if cert['estado'] != 'aprobado':
+        raise ApiError(409, f'el certificado está {cert["estado"]}: sólo se autoriza uno aprobado por el jefe de certificaciones')
+    if u['id'] in (cert['emitido_por'], cert['aprobado_por']):
+        raise ApiError(403, 'quien emite o aprueba un certificado no puede autorizarlo')
     fecha_txt = ctx['body'].get('fecha_autorizacion')
     fecha = parse_fecha(fecha_txt, 'fecha_autorizacion') if fecha_txt else hoy()
     if fecha > hoy():
@@ -821,7 +852,7 @@ def anular_certificado(c, ctx, cid):
     u, ente, obra, cert = _cert_para(c, ctx, cid, 'anular_certificado')
     if cert['estado'] == 'autorizado':
         raise ApiError(409, 'un certificado autorizado ya no se puede anular')
-    if cert['estado'] != 'pendiente':
+    if cert['estado'] not in ('pendiente', 'aprobado', 'devuelto'):
         raise ApiError(409, f'el certificado ya está {cert["estado"]}')
     ultimo = c.execute("SELECT MAX(numero) FROM certificados WHERE obra_id=? AND estado!='anulado'", (obra['id'],)).fetchone()[0]
     if cert['numero'] != ultimo:
@@ -1607,6 +1638,8 @@ def publicar_legajo(c, ctx, oid):
 
 
 RUTAS = [
+    ('POST', r'^/certificados/(\d+)/aprobar$', aprobar_certificado),
+    ('POST', r'^/certificados/(\d+)/devolver$', devolver_certificado),
     ('POST', r'^/obras/(\d+)/equipo$', asignar_equipo),
     ('GET', r'^/obras/(\d+)/firmas-contratista$', firmas_contratista),
     ('POST', r'^/computos/(\d+)/firma-contratista$', firmar_medicion_contratista),
