@@ -384,6 +384,12 @@ def sembrar_campo(s, simples, oid, m, en):
                 a(insp, hora + timedelta(days=4), obra.cerrar_os, {'observacion': 'Conforme.'}, o['id'])
     c.commit()
 
+    # --- notas de pedido: la contratista pide una ampliación de plazo y la inspección la responde; otra queda pendiente ---
+    n1 = a(contr, en(m(3), 9, 9), obra.solicitar_nota, {'tipo': 'ampliacion_plazo', 'motivo': 'Las lluvias de la semana del 12 impidieron trabajar en la excavación durante cinco días.'}, oid)
+    a(insp, en(m(3), 11, 9), obra.responder_nota, {'respuesta': 'Se analiza con el registro de lluvias de la semana. Se responde con el informe.'}, n1['id'])
+    a(contr, en(m(4), 2, 9), obra.solicitar_nota, {'tipo': 'otra', 'motivo': 'Solicitamos autorización para reemplazar el proveedor de ventanas por falta de stock.'}, oid)
+    c.commit()
+
     # --- documentación técnica ---
     dia = lambda n: (base.date() + timedelta(days=n)).strftime('%Y-%m-%d')  # noqa: E731
     h0 = en(m(2), 20, 10)

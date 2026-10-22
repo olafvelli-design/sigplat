@@ -1114,6 +1114,8 @@ function tareasDeObra(o) {
     if (r.modificacion_pendiente) t.push(['modificaciones', 'Autorizar una modificación del cronograma']);
   }
   if (rolEn('contratista') && r.os_sin_responder) t.push(['libro', `Responder ${r.os_sin_responder} orden(es) de servicio`]);
+  if (rolEn('contratista') && r.notas_sin_responder) t.push(['libro', `${r.notas_sin_responder} nota(s) de pedido esperan respuesta`]);
+  if (rolEn('inspector') && soyInsp && r.notas_sin_responder) t.push(['libro', `Responder ${r.notas_sin_responder} nota(s) de pedido`]);
   return t;
 }
 
@@ -1789,7 +1791,7 @@ async function vistaObras() {
       <span><b>${esc(o.denominacion)}</b></span>
       <span class="meta"><b>${esc(o.codigo || '')}</b>${o.nro_contratacion ? ' · N° ' + esc(o.nro_contratacion) : ''}</span>
       <span class="meta">${esc(o.contratista)} · ${esc(ESTADO_OBRA[o.estado])}</span>
-      <span class="meta">Comprometido a la fecha ${pctTxt(r.avance_ideal_pct)} · Certificado ${pctTxt(r.avance_certificado_pct)} · ${r.vencida ? 'Plazo vencido' : 'Quedan ' + r.dias_restantes + ' días'}</span>
+      <span class="meta">${rolEn('contratista') ? '' : `Comprometido a la fecha ${pctTxt(r.avance_ideal_pct)} · Certificado ${pctTxt(r.avance_certificado_pct)} · `}${r.vencida ? 'Plazo vencido' : 'Quedan ' + r.dias_restantes + ' días'}</span>
       ${r.mes_a_medir && rolEn('inspector') ? `<span class="meta"><b>Para medir: ${mesTxt(r.mes_a_medir)}</b></span>` : ''}
       ${rolEn('inspector') && r.computos_sin_certificado ? `<span class="meta"><b>${r.computos_sin_certificado} cómputo(s) esperan que los certifiques</b></span>` : ''}
       ${rolEn('autoridad') && r.certificados_pendientes ? `<span class="meta"><b>${r.certificados_pendientes} certificado(s) esperan autorización</b></span>` : ''}
@@ -1802,13 +1804,18 @@ async function vistaObras() {
 
 // Pestañas de una obra, agrupadas según el sistema al que pertenecen en esta simulación
 function gruposObra() {
+  const todos = gruposObraTodos();
+  // la contratista ve sólo lo de campo (libro con sus notas y órdenes, documentación y calidad que ella carga)
+  return rolEn('contratista') ? todos.filter(g => g.grupo.startsWith('Campo')) : todos;
+}
+function gruposObraTodos() {
   return [
     { grupo: 'La obra', tabs: [['detalle', 'Resumen de la obra'], ['legajo', 'Legajo técnico'], ['modificaciones', 'Modificar cronograma']] },
     { grupo: 'Trabajo mensual', tabs: [['computo', 'Gestionar mes'], ['certificados', 'Certificados']] },
     { grupo: 'Campo y documentación', tabs: [['libro', 'Libro de obra'], ['documentos', 'Documentación'], ['calidad', 'Calidad']] },
   ];
 }
-const tabInicialObra = () => 'detalle';
+const tabInicialObra = () => rolEn('contratista') ? 'libro' : 'detalle';
 
 async function vistaObra() {
   const f = await api('GET', '/obras/' + S.obra.id);
@@ -1945,6 +1952,7 @@ function htmlCertificado(c) {
     ${c.observaciones ? `<p class="small">Observaciones: ${esc(c.observaciones)}</p>` : ''}
     <p class="small">Expediente: ${c.expediente_externo ? esc(c.expediente_externo) : 'sin asignar'} · ${c.fecha_autorizacion ? 'Autorizado el ' + dia(c.fecha_autorizacion) + ' · Vence el ' + dia(c.vence_at) : 'Todavía no autorizado'}</p>
     <div class="firmas">${c.firmas.map(f => `<div><div class="linea"></div><b>${esc(f.cargo)}</b><br>${f.nombre ? esc(f.nombre) + '<br>' + fmt(f.fecha) + ' (simulado)' : '<i>Pendiente</i>'}</div>`).join('')}</div>
+    ${c.registro && c.registro.length ? `<p class="small"><b>Registro de firmas</b></p><ul class="lista-chequeo">${c.registro.map(r => `<li>${esc({ emitido: 'Emitido', autorizado: 'Autorizado', anulado: 'Anulado' }[r.accion] || r.accion)} por ${esc(r.nombre || '')} (${esc(r.rol)}), ${fmt(r.fecha)}${r.motivo ? ' · Motivo: ' + esc(r.motivo) : ''}</li>`).join('')}</ul>` : ''}
     <p class="small">${esc(c.nota_firmas)} La liquidación es simplificada: el certificado real tiene 17 conceptos.</p></div>`;
 }
 
@@ -2349,7 +2357,16 @@ const esInspectorDe = f => rolEn('inspector') && f.inspector && f.inspector.id =
 async function tabLibro(f) {
   const cont = $('#obraCuerpo'), soyInsp = esInspectorDe(f), soyContr = rolEn('contratista');
   const lista = await api('GET', `/obras/${f.id}/ordenes-servicio`);
-  cont.innerHTML = `<p class="small">Libro de obra: las órdenes de servicio se numeran en orden, sin saltos, y <b>no se pueden editar ni borrar</b>. El contratista responde una vez y el inspector la cierra.</p>
+  const notas = await api('GET', `/obras/${f.id}/notas`);
+  cont.innerHTML = `<h3>Notas de pedido</h3>
+    <p class="small">La contratista pide una ampliación de plazo, una modificación de obra u otra cosa. La inspección responde una sola vez y el registro no se edita.</p>
+    ${soyContr ? '<div class="row"><button type="button" class="big" id="notaNueva">+ Solicitar nota de pedido</button></div>' : ''}
+    ${notas.length ? notas.slice().reverse().map(n => `<div class="tarjeta"><div class="row"><b>Nota de pedido N° ${n.numero}</b><span class="small">${esc(n.tipo_nombre)}</span>${etiqueta(n.estado === 'pendiente' ? 'Pendiente de respuesta' : 'Respondida', n.estado === 'pendiente' ? 'aviso' : 'ok')}</div>
+      <p>${esc(n.motivo)}</p><div class="small">Solicitada por ${esc(n.solicitada_por_nombre)} · ${fmt(n.solicitada_at)}</div>
+      ${n.respuesta ? `<div class="msg ok" role="note"><b>Respuesta de la inspección</b> (${esc(n.respondida_por_nombre)}, ${fmt(n.respondida_at)}):<br>${esc(n.respuesta)}</div>` : ''}
+      <div class="row">${soyInsp && n.estado === 'pendiente' ? `<button type="button" data-nresp="${n.id}">Responder</button>` : ''}</div></div>`).join('') : '<p class="vacio small">Todavía no hay notas de pedido.</p>'}
+    <h3>Órdenes de servicio</h3>
+    <p class="small">Libro de obra: las órdenes de servicio se numeran en orden, sin saltos, y <b>no se pueden editar ni borrar</b>. El contratista responde una vez y el inspector la cierra.</p>
     ${soyInsp ? '<div class="row"><button type="button" class="big" id="osNueva">+ Nueva orden de servicio</button></div>' : ''}
     <div id="osMsg"></div>
     ${lista.length ? lista.slice().reverse().map(o => `<div class="tarjeta"><div class="row"><b>Orden de servicio N° ${o.numero}</b><span class="small">${dia(o.fecha)}</span>${etiqueta(ESTADO_OS[o.estado][0], ESTADO_OS[o.estado][1])}</div>
@@ -2359,6 +2376,15 @@ async function tabLibro(f) {
       <div class="row">${soyContr && o.estado === 'emitida' ? `<button type="button" data-resp="${o.id}">Responder</button>` : ''}
         ${soyInsp && o.estado === 'respondida' ? `<button type="button" data-cerrar="${o.id}">Cerrar la orden</button>` : ''}</div></div>`).join('') : '<p class="vacio small">Todavía no hay órdenes de servicio.</p>'}`;
   const terminar = async txt => { toast(txt); await vistaObra(); };
+  if ($('#notaNueva')) $('#notaNueva').onclick = async () => {
+    const r = await modal({ titulo: 'Solicitar una nota de pedido', html: `<label for="nTipo">Tipo</label><select id="nTipo">
+        <option value="ampliacion_plazo">Ampliación de plazo</option><option value="modificacion_obra">Modificación de obra</option><option value="otra">Otra</option></select>
+      <label for="nMot">Motivo (qué pasó y qué se pide)</label><textarea id="nMot" maxlength="2000"></textarea><p class="error err-dlg" role="alert"></p>`,
+      botones: [{ id: 'no', texto: 'Volver', cls: 'sec' }, { id: 'ok', texto: 'Enviar la nota', valor: d => ({ tipo: d.querySelector('#nTipo').value, motivo: d.querySelector('#nMot').value.trim() }),
+        validar: d => d.querySelector('#nMot').value.trim().length < 10 ? 'Explicá el motivo (al menos 10 letras).' : null }] });
+    if (!r || r.id !== 'ok') return;
+    try { await api('POST', `/obras/${f.id}/notas`, r.valor); await terminar('Nota de pedido enviada'); } catch (err) { mensaje($('#osMsg'), err.message, false); }
+  };
   if ($('#osNueva')) $('#osNueva').onclick = async () => {
     const r = await modal({ titulo: 'Nueva orden de servicio', html: `<label for="mAsunto">Asunto</label><input id="mAsunto" maxlength="120" autocomplete="off">
       <label for="mTexto">Qué se ordena</label><textarea id="mTexto" maxlength="2000"></textarea>
@@ -2370,8 +2396,12 @@ async function tabLibro(f) {
     try { await api('POST', `/obras/${f.id}/ordenes-servicio`, r.valor); await terminar('Orden de servicio emitida'); } catch (err) { mensaje($('#osMsg'), err.message, false); }
   };
   cont.onclick = async e => {
-    const rb = e.target.closest('[data-resp]'), cb = e.target.closest('[data-cerrar]');
+    const rb = e.target.closest('[data-resp]'), cb = e.target.closest('[data-cerrar]'), nr = e.target.closest('[data-nresp]');
     try {
+      if (nr) {
+        const t = await pedirTexto({ titulo: 'Responder la nota de pedido', etiqueta: 'Respuesta de la inspección. Se responde una sola vez.', minimo: 5, boton: 'Enviar respuesta' });
+        if (t) { await api('POST', `/notas/${nr.dataset.nresp}/respuesta`, { respuesta: t }); await terminar('Nota respondida'); }
+      }
       if (rb) {
         const t = await pedirTexto({ titulo: 'Responder la orden de servicio', etiqueta: 'Tu respuesta (descargo). Se responde una sola vez.', minimo: 5, boton: 'Enviar respuesta' });
         if (t) { await api('POST', `/ordenes-servicio/${rb.dataset.resp}/respuesta`, { texto: t }); await terminar('Respuesta enviada'); }

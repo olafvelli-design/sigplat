@@ -397,6 +397,49 @@ CREATE TRIGGER IF NOT EXISTS ordenes_no_delete BEFORE DELETE ON ordenes_servicio
 BEGIN SELECT RAISE(ABORT, 'las órdenes de servicio no se borran'); END;
 CREATE TRIGGER IF NOT EXISTS ordenes_inmutables BEFORE UPDATE OF obra_id, numero, fecha, asunto, texto, emitida_por, emitida_at ON ordenes_servicio
 BEGIN SELECT RAISE(ABORT, 'las órdenes de servicio no se editan'); END;
+-- Notas de pedido (el contratista pide algo a la inspección: ampliación de plazo, modificación de obra u otra).
+-- Numeradas sin saltos por obra, inmutables, y respondidas una sola vez por el inspector.
+CREATE TABLE IF NOT EXISTS notas_pedido (
+    id              INTEGER PRIMARY KEY,
+    obra_id         INTEGER NOT NULL REFERENCES obras(id),
+    ente_id         INTEGER NOT NULL REFERENCES entes(id),
+    numero          INTEGER NOT NULL,
+    tipo            TEXT NOT NULL CHECK (tipo IN ('ampliacion_plazo','modificacion_obra','otra')),
+    motivo          TEXT NOT NULL,
+    solicitada_por  INTEGER NOT NULL REFERENCES usuarios(id),
+    solicitada_at   TEXT NOT NULL,
+    estado          TEXT NOT NULL CHECK (estado IN ('pendiente','respondida')),
+    respuesta       TEXT,
+    respondida_por  INTEGER REFERENCES usuarios(id),
+    respondida_at   TEXT,
+    UNIQUE (obra_id, numero)
+);
+
+-- Registro de firmas y actos: quién, con qué rol, cuándo y, si corresponde, el motivo (rechazo o anulación).
+-- Sólo se agrega: no se edita ni se borra.
+CREATE TABLE IF NOT EXISTS firmas_registro (
+    id          INTEGER PRIMARY KEY,
+    ente_id     INTEGER NOT NULL REFERENCES entes(id),
+    entidad     TEXT NOT NULL CHECK (entidad IN ('certificado','nota_pedido','orden_servicio')),
+    entidad_id  INTEGER NOT NULL,
+    accion      TEXT NOT NULL,
+    usuario_id  INTEGER NOT NULL REFERENCES usuarios(id),
+    rol         TEXT NOT NULL,
+    fecha       TEXT NOT NULL,
+    motivo      TEXT
+);
+
+CREATE TRIGGER IF NOT EXISTS notas_no_delete BEFORE DELETE ON notas_pedido
+BEGIN SELECT RAISE(ABORT, 'las notas de pedido no se borran'); END;
+CREATE TRIGGER IF NOT EXISTS notas_inmutables BEFORE UPDATE OF obra_id, ente_id, numero, tipo, motivo, solicitada_por, solicitada_at ON notas_pedido
+BEGIN SELECT RAISE(ABORT, 'las notas de pedido no se editan'); END;
+CREATE TRIGGER IF NOT EXISTS notas_respuesta_una_vez BEFORE UPDATE ON notas_pedido WHEN OLD.estado = 'respondida'
+BEGIN SELECT RAISE(ABORT, 'una nota de pedido se responde una sola vez'); END;
+CREATE TRIGGER IF NOT EXISTS firmas_no_update BEFORE UPDATE ON firmas_registro
+BEGIN SELECT RAISE(ABORT, 'el registro de firmas no se edita'); END;
+CREATE TRIGGER IF NOT EXISTS firmas_no_delete BEFORE DELETE ON firmas_registro
+BEGIN SELECT RAISE(ABORT, 'el registro de firmas no se borra'); END;
+
 CREATE TRIGGER IF NOT EXISTS legajo_no_delete BEFORE DELETE ON legajo_obra
 BEGIN SELECT RAISE(ABORT, 'el legajo no se borra: se reemplaza por una versión nueva'); END;
 CREATE TRIGGER IF NOT EXISTS legajo_inmutable BEFORE UPDATE ON legajo_obra
@@ -407,4 +450,5 @@ CREATE TRIGGER IF NOT EXISTS observaciones_no_delete BEFORE DELETE ON observacio
 BEGIN SELECT RAISE(ABORT, 'las observaciones no se borran'); END;
 CREATE TRIGGER IF NOT EXISTS recepciones_no_delete BEFORE DELETE ON recepciones_hormigon
 BEGIN SELECT RAISE(ABORT, 'las recepciones no se borran'); END;
+
 

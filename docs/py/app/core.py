@@ -67,6 +67,8 @@ PERMISOS = {
     'asignar_obra': {'administrativo'},
     'subir_legajo': {'administrativo'},
     'publicar_legajo': {'administrativo'},
+    'solicitar_nota': {'contratista'},  # el representante técnico de la contratista pide notas de pedido
+    'responder_nota': {'inspector'},
     'subir_documento': {'contratista', 'inspector'},
     'revisar_documento': {'inspector'},
     'cargar_recepcion': {'contratista', 'inspector'},
@@ -1000,4 +1002,5 @@ def cargar_configs(c):
                ON CONFLICT(codigo) DO UPDATE SET nombre=excluded.nombre, config_json=excluded.config_json''',
             (cfg['codigo'], cfg['nombre'], json.dumps(cfg, ensure_ascii=False), 1 if cfg.get('ficticio') else 0),
         )
+
 

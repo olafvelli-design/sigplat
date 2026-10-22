@@ -479,6 +479,7 @@ def nuevo_computo(c, ctx, oid):
 
 def ver_computo(c, ctx, kid):
     u, ente, obra, k = _computo_para(c, ctx, kid)
+    _exigir_interno(u)
     return 200, _vista_computo(c, obra, k)
 
 
@@ -614,6 +615,7 @@ def _resumen(c, obra, items=None):
             'avance_ideal_pct': ideal_hoy[-1]['ideal_acum_pct'] if ideal_hoy else 0.0,
             'avance_certificado_pct': real[-1]['real_acum_pct'] if real else None,
             'avance_medido_pct': pct(medido, monto), 'desvio': cv['desvio'], 'mes_a_medir': mes_a_medir,
+            'notas_sin_responder': c.execute("SELECT COUNT(*) FROM notas_pedido WHERE obra_id=? AND estado='pendiente'", (obra['id'],)).fetchone()[0],
             'computo_en_curso': ultimo['id'] if ultimo is not None and ultimo['estado'] == 'borrador' else None}
 
 
@@ -632,12 +634,14 @@ def listar_obras(c, ctx):
     for r in c.execute('SELECT * FROM obras WHERE ente_id=? ORDER BY id', (ente['id'],)):
         obra = core.fila(r)
         if _visible(u, obra):
-            out.append(dict(_datos_obra(c, obra), resumen=_resumen(c, obra)))
+            out.append(dict(_datos_obra(c, obra), resumen=_resumen_contratista(c, obra) if u['rol'] == 'contratista' else _resumen(c, obra)))
     return 200, out
 
 
 def ficha_obra(c, ctx, oid):
     u, ente, obra = _obra_para(c, ctx, oid=oid)
+    if u['rol'] == 'contratista':
+        return 200, _ficha_contratista(c, obra)
     items = _items(c, oid)
     acum = _acumulado_previo(c, oid, '9999-99')
     filas = []
@@ -657,6 +661,7 @@ def ficha_obra(c, ctx, oid):
 
 def curva_obra(c, ctx, oid):
     u, ente, obra = _obra_para(c, ctx, oid=oid)
+    _exigir_interno(u)
     return 200, curva(c, obra)
 
 
@@ -749,6 +754,7 @@ def emitir_certificado(c, ctx, oid):
         (oid, ente['id'], numero, 'final' if k['es_final'] else 'parcial', k['id'], 'pendiente', monto,
          json.dumps(liq), obs, u['id'], core.iso(core.now())))
     core.audit(c, ente['id'], 'certificado', cur.lastrowid, 'emitido', u['id'], {'numero': numero, 'mes': k['mes'], 'monto_cent': monto})
+    _registrar_firma(c, ente['id'], 'certificado', cur.lastrowid, 'emitido', u)
     return 201, _ficha_certificado(c, obra, core.fila(c.execute('SELECT * FROM certificados WHERE id=?', (cur.lastrowid,)).fetchone()))
 
 
@@ -763,17 +769,19 @@ def _ficha_certificado(c, obra, cert):
         motivo_anulacion=cert['motivo_anulacion'],
         firmas=[{'cargo': 'Inspector de obra (mide y certifica)', 'nombre': _nombre(c, cert['emitido_por']), 'fecha': cert['emitido_at']},
                 {'cargo': 'Autoridad (autoriza)', 'nombre': _nombre(c, cert['autorizado_por']), 'fecha': cert['autorizado_at']}],
-        nota_firmas=f'Firmas simuladas: el certificado real lleva {FIRMAS_REALES}.')
+        nota_firmas=f'Firmas simuladas: el certificado real lleva {FIRMAS_REALES}.', registro=_firmas(c, 'certificado', cert['id']))
     return d
 
 
 def ficha_certificado(c, ctx, cid):
     u, ente, obra, cert = _cert_para(c, ctx, cid)
+    _exigir_interno(u)
     return 200, _ficha_certificado(c, obra, cert)
 
 
 def listar_certificados(c, ctx, oid):
     u, ente, obra = _obra_para(c, ctx, oid=oid)
+    _exigir_interno(u)
     return 200, [_resumen_certificado(c, core.fila(r)) for r in c.execute('SELECT * FROM certificados WHERE obra_id=? ORDER BY numero, id', (oid,))]
 
 
@@ -794,6 +802,7 @@ def autorizar_certificado(c, ctx, cid):
     c.execute("""UPDATE certificados SET estado='autorizado', autorizado_por=?, autorizado_at=?, fecha_autorizacion=?, vence_at=? WHERE id=?""",
               (u['id'], core.iso(core.now()), fecha.strftime('%Y-%m-%d'), vence.strftime('%Y-%m-%d'), cid))
     core.audit(c, ente['id'], 'certificado', cid, 'autorizado', u['id'], {'fecha': fecha.strftime('%Y-%m-%d'), 'vence': vence.strftime('%Y-%m-%d')})
+    _registrar_firma(c, ente['id'], 'certificado', cid, 'autorizado', u)
     return 200, _ficha_certificado(c, obra, core.fila(c.execute('SELECT * FROM certificados WHERE id=?', (cid,)).fetchone()))
 
 
@@ -810,6 +819,7 @@ def anular_certificado(c, ctx, cid):
     c.execute("UPDATE certificados SET estado='anulado', anulado_por=?, anulado_at=?, motivo_anulacion=? WHERE id=?",
               (u['id'], core.iso(core.now()), motivo, cid))
     core.audit(c, ente['id'], 'certificado', cid, 'anulado', u['id'], {'motivo': motivo})
+    _registrar_firma(c, ente['id'], 'certificado', cid, 'anulado', u, motivo)
     return 200, _ficha_certificado(c, obra, core.fila(c.execute('SELECT * FROM certificados WHERE id=?', (cid,)).fetchone()))
 
 
@@ -847,6 +857,7 @@ def _mod_dict(c, cv, vigente_id):
 
 def listar_modificaciones(c, ctx, oid):
     u, ente, obra = _obra_para(c, ctx, oid=oid)
+    _exigir_interno(u)
     v = _curva_vigente(c, oid)
     mods = [_mod_dict(c, r, v['id'] if v else None) for r in c.execute(
         "SELECT * FROM curvas_ideal WHERE obra_id=? AND tipo!='principal' ORDER BY id DESC", (oid,))]
@@ -857,6 +868,7 @@ def listar_modificaciones(c, ctx, oid):
 def curva_ideal_vigente(c, ctx, oid):
     """La curva en vigor, ítem por ítem y mes por mes: es la planilla de partida para cargar una modificación."""
     u, ente, obra = _obra_para(c, ctx, oid=oid)
+    _exigir_interno(u)
     v = _curva_vigente(c, oid)
     cant = {}
     for r in c.execute('SELECT item_id, mes, cantidad FROM avance_ideal WHERE curva_id=?', (v['id'],)):
@@ -982,6 +994,7 @@ def emitir_os(c, ctx, oid):
                        VALUES(?,?,?,?,?,?,?,?,?)''',
                     (oid, ente['id'], numero, hoy().strftime('%Y-%m-%d'), asunto, cuerpo, u['id'], core.iso(core.now()), 'emitida'))
     core.audit(c, ente['id'], 'orden_servicio', cur.lastrowid, 'emitida', u['id'], {'numero': numero, 'obra': oid})
+    _registrar_firma(c, ente['id'], 'orden_servicio', cur.lastrowid, 'emitida', u)
     return 201, _os_dict(c, c.execute('SELECT * FROM ordenes_servicio WHERE id=?', (cur.lastrowid,)).fetchone())
 
 
@@ -994,6 +1007,7 @@ def responder_os(c, ctx, osid):
     c.execute("UPDATE ordenes_servicio SET estado='respondida', respuesta=?, respondida_por=?, respondida_at=? WHERE id=?",
               (resp, u['id'], core.iso(core.now()), osid))
     core.audit(c, ente['id'], 'orden_servicio', osid, 'respondida', u['id'], {'numero': o['numero']})
+    _registrar_firma(c, ente['id'], 'orden_servicio', osid, 'respondida', u)
     return 200, _os_dict(c, c.execute('SELECT * FROM ordenes_servicio WHERE id=?', (osid,)).fetchone())
 
 
@@ -1007,8 +1021,100 @@ def cerrar_os(c, ctx, osid):
     c.execute("UPDATE ordenes_servicio SET estado='cerrada', cerrada_por=?, cerrada_at=?, cierre_obs=? WHERE id=?",
               (u['id'], core.iso(core.now()), obs, osid))
     core.audit(c, ente['id'], 'orden_servicio', osid, 'cerrada', u['id'], {'numero': o['numero']})
+    _registrar_firma(c, ente['id'], 'orden_servicio', osid, 'cerrada', u, obs)
     return 200, _os_dict(c, c.execute('SELECT * FROM ordenes_servicio WHERE id=?', (osid,)).fetchone())
 
+
+# ---------- notas de pedido (la contratista pide; la inspección responde) ----------
+# Numeradas sin saltos por obra, inmutables y respondidas una sola vez (ver schema.sql). La orden de servicio va en el sentido inverso.
+
+TIPOS_NOTA = {'ampliacion_plazo': 'Ampliación de plazo', 'modificacion_obra': 'Modificación de obra', 'otra': 'Otra'}
+
+
+def _exigir_interno(u):
+    """Lo que la contratista no ve: cómputos, certificados, curvas, modificaciones y legajo. Ve su obra, sus notas y sus órdenes de servicio."""
+    if u['rol'] == 'contratista':
+        raise ApiError(404, 'recurso inexistente')
+
+
+def _registrar_firma(c, ente_id, entidad, eid, accion, u, motivo=None):
+    """Registro de firmas: quién, con qué rol, cuándo y motivo. Sólo se agrega."""
+    c.execute('INSERT INTO firmas_registro(ente_id,entidad,entidad_id,accion,usuario_id,rol,fecha,motivo) VALUES(?,?,?,?,?,?,?,?)',
+              (ente_id, entidad, eid, accion, u['id'], u['rol'], core.iso(core.now()), motivo))
+
+
+def _firmas(c, entidad, eid):
+    return [{'accion': r['accion'], 'rol': r['rol'], 'nombre': _nombre(c, r['usuario_id']), 'fecha': r['fecha'], 'motivo': r['motivo']}
+            for r in c.execute('SELECT * FROM firmas_registro WHERE entidad=? AND entidad_id=? ORDER BY id', (entidad, eid))]
+
+
+def _nota_dict(c, r):
+    d = core.fila(r)
+    d['tipo_nombre'] = TIPOS_NOTA[d['tipo']]
+    d['solicitada_por_nombre'] = _nombre(c, d['solicitada_por'])
+    d['respondida_por_nombre'] = _nombre(c, d['respondida_por'])
+    return d
+
+
+def _nota_para(c, ctx, nid, permiso):
+    u, ente = core.usuario_actual(c, ctx)
+    core.exigir(u, permiso)
+    r = c.execute('SELECT * FROM notas_pedido WHERE id=?', (nid,)).fetchone()
+    if r is None:
+        raise ApiError(404, 'nota de pedido inexistente')
+    obra = _obra(c, ente, r['obra_id'])
+    if not _visible(u, obra):
+        raise ApiError(404, 'nota de pedido inexistente')
+    return u, ente, obra, core.fila(r)
+
+
+def listar_notas(c, ctx, oid):
+    u, ente, obra = _obra_para(c, ctx, oid=oid)
+    return 200, [_nota_dict(c, r) for r in c.execute('SELECT * FROM notas_pedido WHERE obra_id=? ORDER BY numero', (oid,))]
+
+
+def solicitar_nota(c, ctx, oid):
+    u, ente, obra = _obra_para(c, ctx, 'solicitar_nota', oid)
+    b = ctx['body']
+    tipo = b.get('tipo')
+    if tipo not in TIPOS_NOTA:
+        raise ApiError(400, 'tipo debe ser uno de: ' + ', '.join(TIPOS_NOTA))
+    motivo = core.texto(b.get('motivo'), 10, 2000, 'motivo')
+    numero = c.execute('SELECT COALESCE(MAX(numero),0)+1 FROM notas_pedido WHERE obra_id=?', (oid,)).fetchone()[0]
+    cur = c.execute('''INSERT INTO notas_pedido(obra_id,ente_id,numero,tipo,motivo,solicitada_por,solicitada_at,estado)
+                       VALUES(?,?,?,?,?,?,?,?)''', (oid, ente['id'], numero, tipo, motivo, u['id'], core.iso(core.now()), 'pendiente'))
+    _registrar_firma(c, ente['id'], 'nota_pedido', cur.lastrowid, 'solicitada', u)
+    core.audit(c, ente['id'], 'nota_pedido', cur.lastrowid, 'solicitada', u['id'], {'numero': numero, 'tipo': tipo})
+    return 201, _nota_dict(c, c.execute('SELECT * FROM notas_pedido WHERE id=?', (cur.lastrowid,)).fetchone())
+
+
+def responder_nota(c, ctx, nid):
+    u, ente, obra, n = _nota_para(c, ctx, nid, 'responder_nota')
+    if obra['inspector_id'] != u['id']:
+        raise ApiError(404, 'nota de pedido inexistente')
+    if n['estado'] != 'pendiente':
+        raise ApiError(409, 'la nota de pedido ya fue respondida')
+    resp = core.texto(ctx['body'].get('respuesta'), 5, 2000, 'respuesta')
+    c.execute("UPDATE notas_pedido SET estado='respondida', respuesta=?, respondida_por=?, respondida_at=? WHERE id=?",
+              (resp, u['id'], core.iso(core.now()), nid))
+    _registrar_firma(c, ente['id'], 'nota_pedido', nid, 'respondida', u)
+    core.audit(c, ente['id'], 'nota_pedido', nid, 'respondida', u['id'], {'numero': n['numero']})
+    return 200, _nota_dict(c, c.execute('SELECT * FROM notas_pedido WHERE id=?', (nid,)).fetchone())
+
+
+def _resumen_contratista(c, obra):
+    """Lo único que ve la contratista de los plazos y pendientes: sin montos, certificados ni curvas."""
+    fin, h = fecha_fin(obra), hoy()
+    return {'plazo': _plazo_info(c, obra), 'fecha_fin': fin.strftime('%Y-%m-%d'), 'dias_restantes': (fin - h).days, 'vencida': h > fin,
+            'os_sin_responder': c.execute("SELECT COUNT(*) FROM ordenes_servicio WHERE obra_id=? AND estado='emitida'", (obra['id'],)).fetchone()[0],
+            'notas_sin_responder': c.execute("SELECT COUNT(*) FROM notas_pedido WHERE obra_id=? AND estado='pendiente'", (obra['id'],)).fetchone()[0]}
+
+
+def _ficha_contratista(c, obra):
+    d = _datos_obra(c, obra)
+    d.update(items=[], computos=[], certificados=[], resumen=_resumen_contratista(c, obra),
+             curva={'puntos': [], 'curvas': [], 'real': [], 'desvio': {'valor': None, 'n': 0, 'nota': ''}})
+    return d
 
 # ---------- documentación técnica (SIGUE): legajo con versiones, etiquetas y observaciones ----------
 
@@ -1333,6 +1439,7 @@ def _legajo_dict(c, d, reemplazados):
 
 def ver_legajo(c, ctx, oid):
     u, ente, obra = _obra_para(c, ctx, oid=oid)
+    _exigir_interno(u)
     filas = [core.fila(r) for r in c.execute('SELECT * FROM legajo_obra WHERE obra_id=? ORDER BY id', (oid,))]
     reemplazados = {d['reemplaza_a'] for d in filas if d['reemplaza_a']}
     docs = [_legajo_dict(c, d, reemplazados) for d in filas]
@@ -1393,6 +1500,9 @@ def publicar_legajo(c, ctx, oid):
 
 
 RUTAS = [
+    ('GET', r'^/obras/(\d+)/notas$', listar_notas),
+    ('POST', r'^/obras/(\d+)/notas$', solicitar_nota),
+    ('POST', r'^/notas/(\d+)/respuesta$', responder_nota),
     ('POST', r'^/obras$', alta_obra),
     ('POST', r'^/obras/(\d+)/asignacion$', asignar_obra),
     ('POST', r'^/obras/(\d+)/estado$', cambiar_estado_obra),
@@ -1431,4 +1541,5 @@ RUTAS = [
     ('POST', r'^/computos/(\d+)/presentar$', presentar_computo),
     ('POST', r'^/computos/(\d+)/eliminar$', eliminar_computo),
 ]
+
 

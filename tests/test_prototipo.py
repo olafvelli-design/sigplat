@@ -898,7 +898,10 @@ class Certificados(ObraBase):
         with self.assertRaises(core.ApiError) as e:
             self.llamar(obra.ficha_certificado, otro, None, None, cert['id'])
         self.assertEqual(e.exception.status, 404)
-        self.llamar(obra.ficha_certificado, self.contr, None, None, cert['id'])  # el contratista de la obra sí
+        # la contratista de la obra no ve los certificados (sólo sus notas y órdenes de servicio)
+        with self.assertRaises(core.ApiError) as e2:
+            self.llamar(obra.ficha_certificado, self.contr, None, None, cert['id'])
+        self.assertEqual(e2.exception.status, 404)
 
 
 class ModificacionesDeObra(ObraBase):
@@ -1183,8 +1186,88 @@ class CodigosYLegajo(ObraBase):
         self.subir(o['id'])
         self.assertEqual(self.error(obra.ver_legajo, self.insp, None, o['id']).status, 404)  # inspector sin asignar
         self.llamar(obra.asignar_obra, self.admin, {'inspector_id': self.insp, 'contratista_id': self.contr}, None, o['id'])
-        for quien in (self.insp, self.contr, self.auth):
+        for quien in (self.insp, self.auth):
             self.assertEqual(len(self.llamar(obra.ver_legajo, quien, None, None, o['id'])[1]['documentos']), 1)
+        self.assertEqual(self.error(obra.ver_legajo, self.contr, None, o['id']).status, 404)  # la contratista no ve el legajo
+
+class NotasYContratista(ObraBase):
+    """Etapa 1: la contratista ve sólo su obra, sus notas de pedido y sus órdenes de servicio; las notas son inmutables; hay registro de firmas."""
+    def nota(self, tipo='ampliacion_plazo', motivo='Las lluvias de noviembre impidieron trabajar nueve días.', uid=None):
+        return self.llamar(obra.solicitar_nota, uid or self.contr, {'tipo': tipo, 'motivo': motivo}, None, self.oid)[1]
+
+    def cert_de(self, kid):
+        return self.c.execute('SELECT id FROM certificados WHERE computo_id=?', (kid,)).fetchone()[0]
+
+    def test_la_contratista_no_ve_cómputos_certificados_curvas_ni_legajo(self):
+        k = self.computo_certificado(c2=10)
+        cid = self.cert_de(k)
+        self.assertEqual(self.error(obra.ver_computo, self.contr, None, k).status, 404)
+        self.assertEqual(self.error(obra.curva_obra, self.contr, None, self.oid).status, 404)
+        self.assertEqual(self.error(obra.listar_certificados, self.contr, None, self.oid).status, 404)
+        self.assertEqual(self.error(obra.ficha_certificado, self.contr, None, cid).status, 404)
+        self.assertEqual(self.error(obra.listar_modificaciones, self.contr, None, self.oid).status, 404)
+        self.assertEqual(self.error(obra.curva_ideal_vigente, self.contr, None, self.oid).status, 404)
+        self.assertEqual(self.error(obra.ver_legajo, self.contr, None, self.oid).status, 404)
+
+    def test_la_ficha_de_la_contratista_no_trae_montos_ni_certificados(self):
+        self.computo_certificado(c2=10)
+        f = self.llamar(obra.ficha_obra, self.contr, None, None, self.oid)[1]
+        self.assertEqual((f['items'], f['computos'], f['certificados']), ([], [], []))
+        self.assertNotIn('avance_certificado_pct', f['resumen'])
+        self.assertNotIn('certificado_autorizado_cent', f['resumen'])
+        self.assertEqual(f['curva']['puntos'], [])
+        self.assertEqual(f['codigo'], self.c.execute('SELECT codigo FROM obras WHERE id=?', (self.oid,)).fetchone()[0])
+
+    def test_la_contratista_ve_sus_notas_y_sus_ordenes_de_servicio(self):
+        self.nota()
+        self.llamar(obra.emitir_os, self.insp, {'asunto': 'Señalizar el obrador', 'texto': 'Reforzar la señalización del obrador.'}, None, self.oid)
+        self.assertEqual(len(self.llamar(obra.listar_notas, self.contr, None, None, self.oid)[1]), 1)
+        self.assertEqual(len(self.llamar(obra.listar_os, self.contr, None, None, self.oid)[1]), 1)
+
+    def test_solo_la_contratista_de_la_obra_solicita_notas(self):
+        otro = self.usuario(self.cba, 'Otra contratista', 'contratista')
+        self.assertEqual(self.error(obra.solicitar_nota, otro, {'tipo': 'otra', 'motivo': 'Un pedido cualquiera de prueba'}, self.oid).status, 404)
+        self.assertEqual(self.error(obra.solicitar_nota, self.insp, {'tipo': 'otra', 'motivo': 'Un pedido cualquiera de prueba'}, self.oid).status, 403)
+
+    def test_las_notas_se_numeran_sin_saltos_y_validan_tipo_y_motivo(self):
+        a, b = self.nota(), self.nota(tipo='otra')
+        self.assertEqual((a['numero'], b['numero']), (1, 2))
+        self.assertEqual(self.error(obra.solicitar_nota, self.contr, {'tipo': 'otra', 'motivo': 'corto'}, self.oid).status, 400)
+        self.assertEqual(self.error(obra.solicitar_nota, self.contr, {'tipo': 'raro', 'motivo': 'un motivo suficiente'}, self.oid).status, 400)
+
+    def test_solo_el_inspector_asignado_responde_una_vez(self):
+        n = self.nota()
+        self.assertEqual(self.error(obra.responder_nota, self.contr, {'respuesta': 'Me la respondo yo'}, n['id']).status, 403)
+        otro = self.usuario(self.cba, 'Otro inspector', 'inspector')
+        self.assertEqual(self.error(obra.responder_nota, otro, {'respuesta': 'La respondo yo'}, n['id']).status, 404)
+        r = self.llamar(obra.responder_nota, self.insp, {'respuesta': 'Se concede la ampliación de nueve días.'}, None, n['id'])[1]
+        self.assertEqual(r['estado'], 'respondida')
+        self.assertEqual(self.error(obra.responder_nota, self.insp, {'respuesta': 'Otra respuesta'}, n['id']).status, 409)
+
+    def test_las_notas_no_se_editan_ni_se_borran_y_se_responden_una_sola_vez(self):
+        n = self.nota()
+        with self.assertRaises(Exception):
+            self.c.execute("UPDATE notas_pedido SET motivo='cambiado' WHERE id=?", (n['id'],))
+        with self.assertRaises(Exception):
+            self.c.execute('DELETE FROM notas_pedido WHERE id=?', (n['id'],))
+        self.llamar(obra.responder_nota, self.insp, {'respuesta': 'Se responde una vez.'}, None, n['id'])
+        with self.assertRaises(Exception):
+            self.c.execute("UPDATE notas_pedido SET respuesta='otra' WHERE id=?", (n['id'],))
+
+    def test_el_registro_de_firmas_guarda_quien_rol_cuando_y_motivo(self):
+        k1 = self.computo_certificado(c2=10)  # emitido por el inspector y autorizado por la autoridad
+        c1 = self.cert_de(k1)
+        self.llamar(obra.autorizar_certificado, self.auth, {}, None, c1)
+        k2 = self.computo(); self.guardar(k2['id'], c2=5); self.presentar(k2['id'])
+        c2 = self.certificado_directo(k2['id'])['id']
+        self.llamar(obra.anular_certificado, self.insp, {'motivo': 'El monto del mes estaba mal medido.'}, None, c2)
+        reg = self.llamar(obra.ficha_certificado, self.auth, None, None, c1)[1]['registro']
+        self.assertEqual([(r['accion'], r['rol']) for r in reg], [('emitido', 'inspector'), ('autorizado', 'autoridad')])
+        self.assertTrue(all(r['fecha'] and r['nombre'] for r in reg))
+        reg2 = self.llamar(obra.ficha_certificado, self.insp, None, None, c2)[1]['registro']
+        self.assertEqual([(r['accion'], r['motivo']) for r in reg2], [('emitido', None), ('anulado', 'El monto del mes estaba mal medido.')])
+        with self.assertRaises(Exception):
+            self.c.execute("DELETE FROM firmas_registro WHERE entidad='certificado'")
 
 class LibroDeObra(ObraBase):
     def os(self, asunto='Presentar el plan de trabajos', texto='Se solicita presentar el plan de trabajos actualizado.', uid=None):
@@ -1567,5 +1650,6 @@ class Autenticacion(ServidorHTTP):
 
 if __name__ == '__main__':
     unittest.main()
+
 
 
