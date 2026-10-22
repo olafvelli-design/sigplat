@@ -13,6 +13,10 @@ Registro de decisiones tomadas y de las que quedan a confirmar. Las confirmadas 
 - **"Mi día" como pantalla de entrada** para los roles de obra. Los nombres SIGO y SIGUE no son categorías de navegación (sólo se mencionan como referencia técnica).
 - **Contratista acotada** a sus notas de pedido y órdenes de servicio, más su obra en lo básico. Cómputos, certificados, curvas, modificaciones y legajo quedan fuera de su vista.
 
+## Confirmadas en la etapa 2
+
+- **El inspector emite el certificado; el analista de certificaciones no emite.** Así lo confirmó el responsable. La emisión sigue en el permiso `emitir_certificado`, que sólo tiene el inspector. (Confirmado, 2026-10)
+
 ## Etapa 2 (implementada, a confirmar)
 
 - **Contratista (representante técnico)**: firma conforme o rechaza, con motivo, una medición presentada y un certificado vigente. Una sola vez. Para firmarlos los ve: sólo el cómputo presentado y el certificado que firma (no la lista de certificados, ni curvas, ni legajo, ni modificaciones). Esto cambia lo que decidí en la etapa 1, por eso lo marco. Sigue sin ver montos de la obra en general.
@@ -25,7 +29,6 @@ Registro de decisiones tomadas y de las que quedan a confirmar. Las confirmadas 
 
 ## A confirmar por el responsable (etapa 2, no implementado)
 
-- **Quién emite el certificado.** El pedido dice que el analista de certificaciones emite. Antes definiste que el inspector certifica y otra persona autoriza. Hoy sigue emitiendo el inspector y el analista no tiene permiso de emisión. Hace falta decidir cuál de las dos reglas vale.
 - **Aprobación del jefe de certificaciones** (aprueba o devuelve). Requiere un estado nuevo en el circuito; no lo agregué. Propongo: emite el analista, aprueba el jefe, autoriza la autoridad. Hay que confirmarlo.
 - **Certificación final del director.** No hay un tipo de certificado para eso más allá del "final" del cómputo. Falta definir qué cambia.
 - **Propuesta de multas y reclamos sobre inspectores auxiliares** (jefe de inspección). No existen esas entidades en el sistema y no quiero inventar reglas. Hace falta definirlas con normativa.
